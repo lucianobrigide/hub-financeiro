@@ -51,12 +51,16 @@ export async function GET(request: Request) {
       }),
     });
 
+    // DEBUG: lê o body uma vez como texto para logar status + corpo.
+    const mlBodyText = await tokenResp.text();
+    console.log("ML status:", tokenResp.status, mlBodyText);
+
     if (!tokenResp.ok) {
       console.error(`Troca de code falhou: ML respondeu ${tokenResp.status}.`);
       return redirectTo("error");
     }
 
-    const data = await tokenResp.json();
+    const data = JSON.parse(mlBodyText);
     const accessToken = data.access_token as string | undefined;
     const refreshToken = data.refresh_token as string | undefined;
     const expiresIn = data.expires_in as number | undefined;
@@ -84,6 +88,10 @@ export async function GET(request: Request) {
         expires_at: expiresAt,
       }),
     });
+
+    // DEBUG: status + corpo da resposta do Supabase.
+    const supabaseBodyText = await insertResp.text();
+    console.log("Supabase status:", insertResp.status, supabaseBodyText);
 
     if (!insertResp.ok) {
       console.error(`Insert em ml_tokens falhou: ${insertResp.status}.`);
