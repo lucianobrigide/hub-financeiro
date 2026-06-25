@@ -1,0 +1,450 @@
+"use client";
+
+import {
+  Bar,
+  CartesianGrid,
+  ComposedChart,
+  Line,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import type { DashboardData } from "@/lib/data/types";
+
+/* ------------------------------------------------------------------ */
+/* Tema (apresentação — não é dado de negócio)                         */
+/* ------------------------------------------------------------------ */
+const COLORS = {
+  bg: "#0a0e1a",
+  panel: "#111726",
+  panelBorder: "#1c2438",
+  cyan: "#00d4d4",
+  green: "#00ff88",
+  white: "#ffffff",
+  muted: "#8892a4",
+  red: "#ff4d6d",
+};
+
+/* ------------------------------------------------------------------ */
+/* Helpers de formatação (pt-BR)                                       */
+/* ------------------------------------------------------------------ */
+const brl = (v: number) =>
+  v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+const num = (v: number) => v.toLocaleString("pt-BR");
+
+const pct = (v: number) =>
+  `${v.toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}%`;
+
+/* ------------------------------------------------------------------ */
+/* Componentes auxiliares                                              */
+/* ------------------------------------------------------------------ */
+function Panel({
+  title,
+  children,
+  className = "",
+}: {
+  title?: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <section
+      className={`rounded-xl border p-4 ${className}`}
+      style={{ background: COLORS.panel, borderColor: COLORS.panelBorder }}
+    >
+      {title && (
+        <h2
+          className="mb-3 text-xs font-semibold uppercase tracking-wider"
+          style={{ color: COLORS.muted }}
+        >
+          {title}
+        </h2>
+      )}
+      {children}
+    </section>
+  );
+}
+
+/* Círculo grande do bloco "Provável" */
+function StatCircle({
+  accent,
+  children,
+}: {
+  accent: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className="flex aspect-square w-40 flex-col items-center justify-center rounded-full border-2 px-4 text-center"
+      style={{
+        borderColor: accent,
+        boxShadow: `0 0 24px ${accent}22, inset 0 0 24px ${accent}11`,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+/* Gauge semicircular em SVG */
+function SemiGauge({ value, max }: { value: number; max: number }) {
+  const frac = Math.min(Math.max(value / max, 0), 1);
+  const r = 90;
+  const cx = 110;
+  const arc = Math.PI * r; // comprimento do semicírculo
+  const offset = arc * (1 - frac);
+  const path = `M 20 110 A ${r} ${r} 0 0 1 200 110`;
+
+  return (
+    <div className="flex flex-col items-center">
+      <svg viewBox="0 0 220 130" className="w-full max-w-[260px]">
+        {/* trilho */}
+        <path
+          d={path}
+          fill="none"
+          stroke={COLORS.panelBorder}
+          strokeWidth={16}
+          strokeLinecap="round"
+        />
+        {/* valor */}
+        <path
+          d={path}
+          fill="none"
+          stroke={COLORS.green}
+          strokeWidth={16}
+          strokeLinecap="round"
+          strokeDasharray={arc}
+          strokeDashoffset={offset}
+        />
+        <text
+          x={cx}
+          y={96}
+          textAnchor="middle"
+          fontSize="20"
+          fontWeight="700"
+          fill={COLORS.white}
+        >
+          {brl(value)}
+        </text>
+      </svg>
+      <div
+        className="mt-1 flex w-full max-w-[260px] justify-between text-xs"
+        style={{ color: COLORS.muted }}
+      >
+        <span>R$ 0</span>
+        <span>{`${(max / 1000).toLocaleString("pt-BR", { minimumFractionDigits: 2 })} Mil`}</span>
+      </div>
+    </div>
+  );
+}
+
+/* KPI compacto reutilizável */
+function MiniKpi({
+  label,
+  value,
+  accent = COLORS.white,
+}: {
+  label: string;
+  value: string;
+  accent?: string;
+}) {
+  return (
+    <div
+      className="flex-1 rounded-lg border px-3 py-2 text-center"
+      style={{ background: COLORS.bg, borderColor: COLORS.panelBorder }}
+    >
+      <div className="text-[10px] uppercase tracking-wider" style={{ color: COLORS.muted }}>
+        {label}
+      </div>
+      <div className="text-lg font-bold" style={{ color: accent }}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function LegendDot({ color, label }: { color: string; label: string }) {
+  return (
+    <span className="flex items-center gap-1.5" style={{ color: COLORS.muted }}>
+      <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: color }} />
+      {label}
+    </span>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Tooltip custom do gráfico                                           */
+/* ------------------------------------------------------------------ */
+type TooltipItem = { name: string; value: number; color: string };
+function ChartTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: TooltipItem[];
+  label?: string;
+}) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div
+      className="rounded-md border px-3 py-2 text-xs"
+      style={{ background: COLORS.panel, borderColor: COLORS.panelBorder }}
+    >
+      <div className="mb-1 font-semibold text-white">{label}</div>
+      {payload.map((p) => (
+        <div key={p.name} className="flex items-center justify-between gap-3">
+          <span style={{ color: p.color }}>{p.name}</span>
+          <span className="font-medium text-white">
+            {p.name === "Total da Venda"
+              ? `R$ ${p.value.toLocaleString("pt-BR", {
+                  minimumFractionDigits: 2,
+                })} Mi`
+              : pct(p.value)}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Dashboard — recebe TODOS os dados via prop (zero hardcode aqui)     */
+/* ------------------------------------------------------------------ */
+export function Dashboard({ data }: { data: DashboardData }) {
+  const { kpis, provavel, margemGauge, mcMensal, totalMensal, plataformas, vendasDiarias } = data;
+  const maxPlataforma = Math.max(...plataformas.map((p) => p.valor));
+
+  return (
+    <div className="flex min-h-screen font-sans" style={{ background: COLORS.bg, color: COLORS.white }}>
+      {/* ---------- SIDEBAR — Vendas diárias ---------- */}
+      <aside
+        className="flex w-[220px] shrink-0 flex-col border-r"
+        style={{ borderColor: COLORS.panelBorder, background: COLORS.panel }}
+      >
+        <div className="border-b p-4" style={{ borderColor: COLORS.panelBorder }}>
+          <h1 className="text-sm font-bold" style={{ color: COLORS.cyan }}>
+            Hub Financeiro
+          </h1>
+          <p className="mt-0.5 text-xs" style={{ color: COLORS.muted }}>
+            Vendas diárias
+          </p>
+        </div>
+        <div className="flex-1 overflow-y-auto p-3">
+          <ul className="space-y-2">
+            {vendasDiarias.map((v) => (
+              <li
+                key={v.data}
+                className="rounded-lg border p-3"
+                style={{ background: COLORS.bg, borderColor: COLORS.panelBorder }}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold" style={{ color: COLORS.cyan }}>
+                    {v.data}
+                  </span>
+                  <span className="text-[11px]" style={{ color: COLORS.muted }}>
+                    {num(v.pedidos)} pedidos
+                  </span>
+                </div>
+                <div className="mt-1 text-sm font-bold text-white">{brl(v.valor)}</div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </aside>
+
+      {/* ---------- ÁREA PRINCIPAL ---------- */}
+      <main className="flex-1 overflow-y-auto p-6">
+        {/* SEÇÃO 1 — KPIs do topo */}
+        <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <Panel>
+            <div className="text-xs uppercase tracking-wider" style={{ color: COLORS.muted }}>
+              Total da Venda
+            </div>
+            <div className="mt-1 text-2xl font-bold" style={{ color: COLORS.green }}>
+              {brl(kpis.totalVenda)}
+            </div>
+          </Panel>
+          <Panel>
+            <div className="text-xs uppercase tracking-wider" style={{ color: COLORS.muted }}>
+              Total de Pedidos
+            </div>
+            <div className="mt-1 text-2xl font-bold text-white">{num(kpis.totalPedidos)}</div>
+          </Panel>
+          <Panel>
+            <div className="text-xs uppercase tracking-wider" style={{ color: COLORS.muted }}>
+              Ticket Médio
+            </div>
+            <div className="mt-1 text-2xl font-bold" style={{ color: COLORS.cyan }}>
+              {brl(kpis.ticketMedio)}
+            </div>
+          </Panel>
+        </div>
+
+        {/* Centro + Direita */}
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+          {/* ----- COLUNA CENTRO ----- */}
+          <div className="space-y-6 lg:col-span-7">
+            {/* SEÇÃO 2 — Bloco Provável */}
+            <Panel title="Provável">
+              <div className="flex flex-wrap items-center justify-center gap-8">
+                <StatCircle accent={COLORS.cyan}>
+                  <div className="text-[10px] uppercase" style={{ color: COLORS.muted }}>
+                    Média de Venda Diária
+                  </div>
+                  <div className="text-base font-bold" style={{ color: COLORS.cyan }}>
+                    {brl(provavel.mediaVendaDiaria)}
+                  </div>
+                  <div className="mt-2 text-[10px] uppercase" style={{ color: COLORS.muted }}>
+                    Fat. Corrente Provável
+                  </div>
+                  <div className="text-sm font-semibold text-white">
+                    {brl(provavel.faturamentoCorrenteProvavel)}
+                  </div>
+                </StatCircle>
+
+                <StatCircle accent={COLORS.green}>
+                  <div className="text-[10px] uppercase" style={{ color: COLORS.muted }}>
+                    MC Ideal
+                  </div>
+                  <div className="text-base font-bold" style={{ color: COLORS.green }}>
+                    {brl(provavel.mcIdeal)}
+                  </div>
+                  <div className="mt-2 text-[10px] uppercase" style={{ color: COLORS.muted }}>
+                    Ponto de Equilíbrio
+                  </div>
+                  <div className="text-sm font-semibold text-white">
+                    {brl(provavel.pontoEquilibrio)}
+                  </div>
+                  <div className="text-xs font-bold" style={{ color: COLORS.green }}>
+                    {pct(provavel.pontoEquilibrioPct)}
+                  </div>
+                </StatCircle>
+              </div>
+
+              <div className="mt-6 flex gap-3">
+                <MiniKpi label="% Ret. L Médio" value={pct(provavel.retLMedio)} accent={COLORS.cyan} />
+                <MiniKpi label="% MC L Média" value={pct(provavel.mcLMedia)} accent={COLORS.green} />
+                <MiniKpi label="% MC L Últ Mês" value={pct(provavel.mcLUltMes)} accent={COLORS.red} />
+              </div>
+            </Panel>
+
+            {/* SEÇÃO 4 — Total Mensal */}
+            <Panel title="Total Mensal">
+              <div className="h-72 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={totalMensal} margin={{ top: 10, right: 10, bottom: 0, left: -10 }}>
+                    <CartesianGrid stroke={COLORS.panelBorder} vertical={false} />
+                    <XAxis dataKey="mes" tick={{ fill: COLORS.muted, fontSize: 12 }} axisLine={false} tickLine={false} />
+                    <YAxis
+                      yAxisId="venda"
+                      tick={{ fill: COLORS.muted, fontSize: 11 }}
+                      axisLine={false}
+                      tickLine={false}
+                      tickFormatter={(v) => `${v} Mi`}
+                    />
+                    <YAxis
+                      yAxisId="pct"
+                      orientation="right"
+                      tick={{ fill: COLORS.muted, fontSize: 11 }}
+                      axisLine={false}
+                      tickLine={false}
+                      tickFormatter={(v) => `${v}%`}
+                    />
+                    <Tooltip content={<ChartTooltip />} cursor={{ fill: "#ffffff08" }} />
+                    <Bar
+                      yAxisId="venda"
+                      dataKey="venda"
+                      name="Total da Venda"
+                      fill={COLORS.cyan}
+                      radius={[4, 4, 0, 0]}
+                      barSize={36}
+                    />
+                    <Line
+                      yAxisId="pct"
+                      type="monotone"
+                      dataKey="mcVenda"
+                      name="% MC Venda"
+                      stroke={COLORS.green}
+                      strokeWidth={2}
+                      dot={{ r: 3, fill: COLORS.green }}
+                    />
+                    <Line
+                      yAxisId="pct"
+                      type="monotone"
+                      dataKey="mcLiquida"
+                      name="% MC Líquida"
+                      stroke={COLORS.red}
+                      strokeWidth={2}
+                      dot={{ r: 3, fill: COLORS.red }}
+                    />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="mt-3 flex flex-wrap justify-center gap-5 text-xs">
+                <LegendDot color={COLORS.cyan} label="Total da Venda" />
+                <LegendDot color={COLORS.green} label="% MC Venda" />
+                <LegendDot color={COLORS.red} label="% MC Líquida" />
+              </div>
+            </Panel>
+          </div>
+
+          {/* ----- COLUNA DIREITA ----- */}
+          <div className="space-y-6 lg:col-span-5">
+            {/* SEÇÃO 3 — Gauge */}
+            <Panel title="Margem de Contribuição Provável">
+              <SemiGauge value={margemGauge.valor} max={margemGauge.max} />
+              <div className="mt-4 grid grid-cols-5 gap-2">
+                {mcMensal.map((m, i) => (
+                  <div
+                    key={i}
+                    className="rounded-md border px-1 py-2 text-center"
+                    style={{ background: COLORS.bg, borderColor: COLORS.panelBorder }}
+                  >
+                    <div className="text-[10px] font-semibold text-white">
+                      {m.valor.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                    </div>
+                    <div
+                      className="mt-1 text-[10px] font-bold"
+                      style={{ color: m.pct >= 100 ? COLORS.green : COLORS.cyan }}
+                    >
+                      {pct(m.pct)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Panel>
+
+            {/* SEÇÃO 5 — Total por Plataforma */}
+            <Panel title="Total por Plataforma">
+              <ul className="space-y-3">
+                {plataformas.map((p) => (
+                  <li key={p.nome}>
+                    <div className="mb-1 flex items-center justify-between text-xs">
+                      <span className="text-white">{p.nome}</span>
+                      <span style={{ color: COLORS.muted }}>{brl(p.valor)}</span>
+                    </div>
+                    <div className="h-2.5 w-full overflow-hidden rounded-full" style={{ background: COLORS.bg }}>
+                      <div
+                        className="h-full rounded-full"
+                        style={{
+                          width: `${Math.max((p.valor / maxPlataforma) * 100, 1.5)}%`,
+                          background: `linear-gradient(90deg, ${COLORS.cyan}, ${COLORS.green})`,
+                        }}
+                      />
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </Panel>
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}
