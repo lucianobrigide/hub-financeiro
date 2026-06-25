@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 
-// Callback do OAuth do Mercado Livre (Authorization Code).
-// O ML redireciona o usuário para cá com ?code=..., trocamos o code pelo par
-// de tokens e gravamos em ml_tokens. Tudo server-side — tokens nunca voltam
-// na resposta; o navegador só recebe um redirect para / com status.
+// Callback do OAuth do Mercado Livre (Authorization Code) — executa UMA vez para
+// inicializar a cadeia de tokens. Troca o code pelo par de tokens e SEMEIA o
+// Vault via RPC ml_seed_initial (service_role). A partir daí, a custódia é toda
+// do Supabase: refresh_token vive só no Vault; quem precisa de access_token usa
+// a Edge Function ml-token. Tudo server-side — nenhum token volta na resposta.
 
 const ML_TOKEN_URL = "https://api.mercadolibre.com/oauth/token";
 const ML_CLIENT_ID = "7148019439656171";
@@ -29,9 +30,7 @@ export async function GET(request: Request) {
     const clientSecret = process.env.ML_CLIENT_SECRET;
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (!clientSecret || !serviceRoleKey) {
-      console.error(
-        "Env ausente: ML_CLIENT_SECRET ou SUPABASE_SERVICE_ROLE_KEY.",
-      );
+      console.error("Env ausente: ML_CLIENT_SECRET ou SUPABASE_SERVICE_ROLE_KEY.");
       return redirectTo("error");
     }
 
@@ -51,50 +50,46 @@ export async function GET(request: Request) {
       }),
     });
 
-    // DEBUG: lê o body uma vez como texto para logar status + corpo.
-    const mlBodyText = await tokenResp.text();
-    console.log("ML status:", tokenResp.status, mlBodyText);
-
     if (!tokenResp.ok) {
       console.error(`Troca de code falhou: ML respondeu ${tokenResp.status}.`);
       return redirectTo("error");
     }
 
-    const data = JSON.parse(mlBodyText);
+    const data = await tokenResp.json();
     const accessToken = data.access_token as string | undefined;
     const refreshToken = data.refresh_token as string | undefined;
     const expiresIn = data.expires_in as number | undefined;
+    const tokenType = data.token_type as string | undefined;
+    const scope = data.scope as string | undefined;
     const userId = data.user_id as number | string | undefined;
     if (!accessToken || !refreshToken || !expiresIn) {
       console.error("Resposta do ML incompleta na troca de code.");
       return redirectTo("error");
     }
-    const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
 
-    // (3) Grava em ml_tokens via PostgREST usando o service_role key.
-    //     service_role ignora RLS (a policy nega anon, não service_role).
-    const insertResp = await fetch(`${SUPABASE_URL}/rest/v1/ml_tokens`, {
+    // (3) Semeia o Vault (credenciais + refresh_token) e grava o access_token
+    //     inicial em ml_oauth_state — tudo via RPC SECURITY DEFINER, com service_role.
+    const seedResp = await fetch(`${SUPABASE_URL}/rest/v1/rpc/ml_seed_initial`, {
       method: "POST",
       headers: {
         apikey: serviceRoleKey,
         Authorization: `Bearer ${serviceRoleKey}`,
         "Content-Type": "application/json",
-        Prefer: "return=minimal",
       },
       body: JSON.stringify({
-        user_id: String(userId ?? "unknown"),
-        access_token: accessToken,
-        refresh_token: refreshToken,
-        expires_at: expiresAt,
+        p_client_id: ML_CLIENT_ID,
+        p_client_secret: clientSecret,
+        p_refresh_token: refreshToken,
+        p_access_token: accessToken,
+        p_token_type: tokenType ?? null,
+        p_scope: scope ?? null,
+        p_expires_in: expiresIn,
+        p_user_id: userId != null ? String(userId) : null,
       }),
     });
 
-    // DEBUG: status + corpo da resposta do Supabase.
-    const supabaseBodyText = await insertResp.text();
-    console.log("Supabase status:", insertResp.status, supabaseBodyText);
-
-    if (!insertResp.ok) {
-      console.error(`Insert em ml_tokens falhou: ${insertResp.status}.`);
+    if (!seedResp.ok) {
+      console.error(`Seed do Vault falhou: ${seedResp.status}.`);
       return redirectTo("error");
     }
 
