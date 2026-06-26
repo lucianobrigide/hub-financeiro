@@ -18,18 +18,20 @@ export interface Kpis {
 export interface Provavel {
   mediaVendaDiaria: number;
   faturamentoCorrenteProvavel: number;
-  mcIdeal: number;
-  pontoEquilibrio: number;
+  // Campos de margem: null quando não há dado (sem custo/tarifa). Nunca 0 falso.
+  mcIdeal: number | null;
+  pontoEquilibrio: number | null;
   /** % do ponto de equilíbrio já atingido. */
-  pontoEquilibrioPct: number;
-  retLMedio: number;
-  mcLMedia: number;
-  mcLUltMes: number;
+  pontoEquilibrioPct: number | null;
+  retLMedio: number | null;
+  mcLMedia: number | null;
+  mcLUltMes: number | null;
 }
 
 /** Gauge semicircular da Margem de Contribuição Provável. */
 export interface MargemGauge {
-  valor: number;
+  /** null = sem dado de margem (não temos custo). */
+  valor: number | null;
   /** Limite superior da escala do gauge (ex.: 214500 = R$ 214,50 Mil). */
   max: number;
 }
@@ -47,16 +49,17 @@ export interface TotalMensalItem {
   mes: string;
   /** Total da venda no mês, em milhões. */
   venda: number;
-  /** % MC sobre a venda. */
-  mcVenda: number;
-  /** % MC líquida. */
-  mcLiquida: number;
+  /** % MC sobre a venda. null = sem dado de margem. */
+  mcVenda: number | null;
+  /** % MC líquida. null = sem dado de margem. */
+  mcLiquida: number | null;
 }
 
 /** Total de venda agregado por canal/plataforma. */
 export interface Plataforma {
   nome: string;
-  valor: number;
+  /** null = canal sem integração/dado ainda (ex.: Shopee/TikTok/Amazon). */
+  valor: number | null;
 }
 
 /** Uma linha da sidebar de vendas diárias. */
@@ -78,14 +81,32 @@ export interface DashboardData {
   vendasDiarias: VendaDiaria[];
 }
 
+/** Um mês selecionável no dashboard. */
+export interface Month {
+  /** Identificador no formato 'YYYY-MM', ex.: '2026-06'. */
+  value: string;
+  /** Rótulo amigável, ex.: 'Junho 2026'. */
+  label: string;
+}
+
 /**
  * Contrato de qualquer fonte de dados do Hub.
  *
- * `getDashboard` é assíncrono de propósito: o mock resolve na hora, mas o
- * futuro provider do Supabase buscará via Edge Function (rede). Manter a
- * assinatura assíncrona desde já garante que trocar a fonte não exija
- * mudar nenhum componente visual.
+ * Assíncrono de propósito: o mock resolve na hora, mas uma fonte real busca
+ * via rede. Manter a assinatura assíncrona garante que trocar a fonte não
+ * exija mudar nenhum componente visual.
  */
 export interface DataProvider {
-  getDashboard(): Promise<DashboardData>;
+  /**
+   * Lista os meses disponíveis (mais recente primeiro).
+   * OPCIONAL: providers que ainda não suportam seleção de mês (ex.: o provider
+   * Supabase/ML atual, que só busca o mês corrente) podem omitir — a UI faz
+   * fallback. Opcional também para não quebrar quem implementa só getDashboard.
+   */
+  listAvailableMonths?(): Promise<Month[]>;
+  /**
+   * Dados do dashboard para um mês ('YYYY-MM'). Sem `month` => mês corrente.
+   * `month` é opcional para manter compatíveis providers que ignoram o filtro.
+   */
+  getDashboard(month?: string): Promise<DashboardData>;
 }

@@ -1,12 +1,13 @@
-import type { DashboardData, DataProvider } from "./types";
+import type { DashboardData, DataProvider, Month } from "./types";
 
 /**
- * Dados mockados do dashboard.
+ * Dados mockados do dashboard (BASE — mês "neutro").
  *
  * Foram extraídos integralmente do componente (antes hardcoded em
- * app/page.tsx). Esta é a ÚNICA fonte desses números agora.
+ * app/page.tsx). getDashboard(month) varia esses números por mês para dar
+ * para ver a troca funcionando.
  */
-const DASHBOARD: DashboardData = {
+const BASE: DashboardData = {
   kpis: {
     totalVenda: 20641882.07,
     totalPedidos: 108104,
@@ -57,9 +58,68 @@ const DASHBOARD: DashboardData = {
   ],
 };
 
+const MESES_FULL = [
+  "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+  "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
+];
+
+/** Últimos 12 meses até o mês atual, mais recente primeiro. */
+function buildMonths(): Month[] {
+  const now = new Date();
+  const out: Month[] = [];
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    out.push({ value, label: `${MESES_FULL[d.getMonth()]} ${d.getFullYear()}` });
+  }
+  return out;
+}
+
+/** Fator determinístico por mês (~0.70..1.29) — mesmo mês, mesmo número. */
+function factorFor(month?: string): number {
+  if (!month) return 1;
+  let h = 0;
+  for (let i = 0; i < month.length; i++) h = (h * 31 + month.charCodeAt(i)) >>> 0;
+  return 0.7 + (h % 60) / 100;
+}
+
+/** Deriva um DashboardData "do mês" escalando a BASE pelo fator. */
+function dashboardFor(month?: string): DashboardData {
+  const f = factorFor(month);
+  const r = (n: number) => Math.round(n * f * 100) / 100;
+  const ri = (n: number) => Math.round(n * f);
+  return {
+    kpis: {
+      totalVenda: r(BASE.kpis.totalVenda),
+      totalPedidos: ri(BASE.kpis.totalPedidos),
+      ticketMedio: r(BASE.kpis.ticketMedio),
+    },
+    provavel: {
+      ...BASE.provavel,
+      mediaVendaDiaria: r(BASE.provavel.mediaVendaDiaria),
+      faturamentoCorrenteProvavel: r(BASE.provavel.faturamentoCorrenteProvavel),
+    },
+    margemGauge: { ...BASE.margemGauge, valor: BASE.margemGauge.valor == null ? null : r(BASE.margemGauge.valor) },
+    mcMensal: BASE.mcMensal.map((m) => ({ ...m, valor: r(m.valor) })),
+    totalMensal: BASE.totalMensal.map((m) => ({
+      ...m,
+      venda: Math.round(m.venda * f * 100) / 100,
+    })),
+    plataformas: BASE.plataformas.map((p) => ({ ...p, valor: p.valor == null ? null : r(p.valor) })),
+    vendasDiarias: BASE.vendasDiarias.map((v) => ({
+      ...v,
+      valor: r(v.valor),
+      pedidos: ri(v.pedidos),
+    })),
+  };
+}
+
 /** Provider mockado — implementa o contrato DataProvider. */
 export const mockProvider: DataProvider = {
-  async getDashboard(): Promise<DashboardData> {
-    return DASHBOARD;
+  async listAvailableMonths(): Promise<Month[]> {
+    return buildMonths();
+  },
+  async getDashboard(month?: string): Promise<DashboardData> {
+    return dashboardFor(month);
   },
 };

@@ -10,7 +10,9 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type { DashboardData } from "@/lib/data/types";
+import { useState, useTransition, type ChangeEvent } from "react";
+import type { DashboardData, Month } from "@/lib/data/types";
+import { fetchDashboardAction } from "@/app/actions";
 
 /* ------------------------------------------------------------------ */
 /* Tema (apresentação — não é dado de negócio)                         */
@@ -39,6 +41,18 @@ const pct = (v: number) =>
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}%`;
+
+/* Marcador de "sem dados" — nunca zera nem inventa número. */
+function Na({ small = false }: { small?: boolean }) {
+  return (
+    <span
+      className={small ? "text-[10px]" : "text-xs"}
+      style={{ color: COLORS.muted, fontStyle: "italic", fontWeight: 400 }}
+    >
+      — sem dados ainda
+    </span>
+  );
+}
 
 /* ------------------------------------------------------------------ */
 /* Componentes auxiliares                                              */
@@ -92,8 +106,9 @@ function StatCircle({
 }
 
 /* Gauge semicircular em SVG */
-function SemiGauge({ value, max }: { value: number; max: number }) {
-  const frac = Math.min(Math.max(value / max, 0), 1);
+function SemiGauge({ value, max }: { value: number | null; max: number }) {
+  const has = value != null;
+  const frac = has ? Math.min(Math.max(value / max, 0), 1) : 0;
   const r = 90;
   const cx = 110;
   const arc = Math.PI * r; // comprimento do semicírculo
@@ -111,25 +126,28 @@ function SemiGauge({ value, max }: { value: number; max: number }) {
           strokeWidth={16}
           strokeLinecap="round"
         />
-        {/* valor */}
-        <path
-          d={path}
-          fill="none"
-          stroke={COLORS.green}
-          strokeWidth={16}
-          strokeLinecap="round"
-          strokeDasharray={arc}
-          strokeDashoffset={offset}
-        />
+        {/* valor (só quando há dado) */}
+        {has && (
+          <path
+            d={path}
+            fill="none"
+            stroke={COLORS.green}
+            strokeWidth={16}
+            strokeLinecap="round"
+            strokeDasharray={arc}
+            strokeDashoffset={offset}
+          />
+        )}
         <text
           x={cx}
           y={96}
           textAnchor="middle"
-          fontSize="20"
+          fontSize={has ? "20" : "12"}
           fontWeight="700"
-          fill={COLORS.white}
+          fill={has ? COLORS.white : COLORS.muted}
+          fontStyle={has ? "normal" : "italic"}
         >
-          {brl(value)}
+          {has ? brl(value) : "— sem dados ainda"}
         </text>
       </svg>
       <div
@@ -150,7 +168,7 @@ function MiniKpi({
   accent = COLORS.white,
 }: {
   label: string;
-  value: string;
+  value: string | null;
   accent?: string;
 }) {
   return (
@@ -162,7 +180,7 @@ function MiniKpi({
         {label}
       </div>
       <div className="text-lg font-bold" style={{ color: accent }}>
-        {value}
+        {value == null ? <Na small /> : value}
       </div>
     </div>
   );
@@ -180,7 +198,7 @@ function LegendDot({ color, label }: { color: string; label: string }) {
 /* ------------------------------------------------------------------ */
 /* Tooltip custom do gráfico                                           */
 /* ------------------------------------------------------------------ */
-type TooltipItem = { name: string; value: number; color: string };
+type TooltipItem = { name: string; value: number | null; color: string };
 function ChartTooltip({
   active,
   payload,
@@ -201,11 +219,11 @@ function ChartTooltip({
         <div key={p.name} className="flex items-center justify-between gap-3">
           <span style={{ color: p.color }}>{p.name}</span>
           <span className="font-medium text-white">
-            {p.name === "Total da Venda"
-              ? `R$ ${p.value.toLocaleString("pt-BR", {
-                  minimumFractionDigits: 2,
-                })} Mi`
-              : pct(p.value)}
+            {p.value == null
+              ? "— sem dados"
+              : p.name === "Total da Venda"
+                ? `R$ ${p.value.toLocaleString("pt-BR", { minimumFractionDigits: 2 })} Mi`
+                : pct(p.value)}
           </span>
         </div>
       ))}
@@ -216,9 +234,31 @@ function ChartTooltip({
 /* ------------------------------------------------------------------ */
 /* Dashboard — recebe TODOS os dados via prop (zero hardcode aqui)     */
 /* ------------------------------------------------------------------ */
-export function Dashboard({ data }: { data: DashboardData }) {
+export function Dashboard({
+  initialData,
+  months,
+  initialMonth,
+}: {
+  initialData: DashboardData;
+  months: Month[];
+  initialMonth?: string;
+}) {
+  const [data, setData] = useState<DashboardData>(initialData);
+  const [month, setMonth] = useState<string>(initialMonth ?? months[0]?.value ?? "");
+  const [isPending, startTransition] = useTransition();
+
+  function onMonthChange(e: ChangeEvent<HTMLSelectElement>) {
+    const next = e.target.value;
+    setMonth(next);
+    startTransition(async () => {
+      const d = await fetchDashboardAction(next);
+      setData(d);
+    });
+  }
+
   const { kpis, provavel, margemGauge, mcMensal, totalMensal, plataformas, vendasDiarias } = data;
-  const maxPlataforma = Math.max(...plataformas.map((p) => p.valor));
+  const maxPlataforma = Math.max(1, ...plataformas.map((p) => p.valor ?? 0));
+  const temMC = totalMensal.some((t) => t.mcVenda != null || t.mcLiquida != null);
 
   return (
     <div className="flex min-h-screen font-sans" style={{ background: COLORS.bg, color: COLORS.white }}>
@@ -260,8 +300,48 @@ export function Dashboard({ data }: { data: DashboardData }) {
 
       {/* ---------- ÁREA PRINCIPAL ---------- */}
       <main className="flex-1 overflow-y-auto p-6">
-        {/* SEÇÃO 1 — KPIs do topo */}
-        <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+        {/* TOPO — seletor de mês */}
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-bold text-white">Dashboard de Vendas</h2>
+            <p className="text-xs" style={{ color: COLORS.muted }}>
+              {months.find((m) => m.value === month)?.label ?? "Mês atual"}
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            {isPending && (
+              <span className="text-xs" style={{ color: COLORS.cyan }}>
+                Carregando…
+              </span>
+            )}
+            <select
+              aria-label="Selecionar mês"
+              value={month}
+              onChange={onMonthChange}
+              disabled={isPending || months.length === 0}
+              className="rounded-lg border px-3 py-2 text-sm font-medium outline-none disabled:opacity-60"
+              style={{ background: COLORS.panel, borderColor: COLORS.panelBorder, color: COLORS.white }}
+            >
+              {months.length === 0 && <option value="">Mês atual</option>}
+              {months.map((m) => (
+                <option key={m.value} value={m.value} style={{ background: COLORS.panel }}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* conteúdo — esmaece e fica inerte enquanto troca de mês */}
+        <div
+          style={{
+            opacity: isPending ? 0.5 : 1,
+            transition: "opacity 150ms ease",
+            pointerEvents: isPending ? "none" : "auto",
+          }}
+        >
+          {/* SEÇÃO 1 — KPIs do topo */}
+          <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
           <Panel>
             <div className="text-xs uppercase tracking-wider" style={{ color: COLORS.muted }}>
               Total da Venda
@@ -313,24 +393,24 @@ export function Dashboard({ data }: { data: DashboardData }) {
                     MC Ideal
                   </div>
                   <div className="text-base font-bold" style={{ color: COLORS.green }}>
-                    {brl(provavel.mcIdeal)}
+                    {provavel.mcIdeal == null ? <Na small /> : brl(provavel.mcIdeal)}
                   </div>
                   <div className="mt-2 text-[10px] uppercase" style={{ color: COLORS.muted }}>
                     Ponto de Equilíbrio
                   </div>
                   <div className="text-sm font-semibold text-white">
-                    {brl(provavel.pontoEquilibrio)}
+                    {provavel.pontoEquilibrio == null ? <Na small /> : brl(provavel.pontoEquilibrio)}
                   </div>
                   <div className="text-xs font-bold" style={{ color: COLORS.green }}>
-                    {pct(provavel.pontoEquilibrioPct)}
+                    {provavel.pontoEquilibrioPct == null ? "" : pct(provavel.pontoEquilibrioPct)}
                   </div>
                 </StatCircle>
               </div>
 
               <div className="mt-6 flex gap-3">
-                <MiniKpi label="% Ret. L Médio" value={pct(provavel.retLMedio)} accent={COLORS.cyan} />
-                <MiniKpi label="% MC L Média" value={pct(provavel.mcLMedia)} accent={COLORS.green} />
-                <MiniKpi label="% MC L Últ Mês" value={pct(provavel.mcLUltMes)} accent={COLORS.red} />
+                <MiniKpi label="% Ret. L Médio" value={provavel.retLMedio == null ? null : pct(provavel.retLMedio)} accent={COLORS.cyan} />
+                <MiniKpi label="% MC L Média" value={provavel.mcLMedia == null ? null : pct(provavel.mcLMedia)} accent={COLORS.green} />
+                <MiniKpi label="% MC L Últ Mês" value={provavel.mcLUltMes == null ? null : pct(provavel.mcLUltMes)} accent={COLORS.red} />
               </div>
             </Panel>
 
@@ -388,8 +468,8 @@ export function Dashboard({ data }: { data: DashboardData }) {
               </div>
               <div className="mt-3 flex flex-wrap justify-center gap-5 text-xs">
                 <LegendDot color={COLORS.cyan} label="Total da Venda" />
-                <LegendDot color={COLORS.green} label="% MC Venda" />
-                <LegendDot color={COLORS.red} label="% MC Líquida" />
+                <LegendDot color={COLORS.green} label={temMC ? "% MC Venda" : "% MC Venda (sem dados)"} />
+                <LegendDot color={COLORS.red} label={temMC ? "% MC Líquida" : "% MC Líquida (sem dados)"} />
               </div>
             </Panel>
           </div>
@@ -399,25 +479,31 @@ export function Dashboard({ data }: { data: DashboardData }) {
             {/* SEÇÃO 3 — Gauge */}
             <Panel title="Margem de Contribuição Provável">
               <SemiGauge value={margemGauge.valor} max={margemGauge.max} />
-              <div className="mt-4 grid grid-cols-5 gap-2">
-                {mcMensal.map((m, i) => (
-                  <div
-                    key={i}
-                    className="rounded-md border px-1 py-2 text-center"
-                    style={{ background: COLORS.bg, borderColor: COLORS.panelBorder }}
-                  >
-                    <div className="text-[10px] font-semibold text-white">
-                      {m.valor.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-                    </div>
+              {mcMensal.length === 0 ? (
+                <div className="mt-4 text-center">
+                  <Na />
+                </div>
+              ) : (
+                <div className="mt-4 grid grid-cols-5 gap-2">
+                  {mcMensal.map((m, i) => (
                     <div
-                      className="mt-1 text-[10px] font-bold"
-                      style={{ color: m.pct >= 100 ? COLORS.green : COLORS.cyan }}
+                      key={i}
+                      className="rounded-md border px-1 py-2 text-center"
+                      style={{ background: COLORS.bg, borderColor: COLORS.panelBorder }}
                     >
-                      {pct(m.pct)}
+                      <div className="text-[10px] font-semibold text-white">
+                        {m.valor.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                      </div>
+                      <div
+                        className="mt-1 text-[10px] font-bold"
+                        style={{ color: m.pct >= 100 ? COLORS.green : COLORS.cyan }}
+                      >
+                        {pct(m.pct)}
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </Panel>
 
             {/* SEÇÃO 5 — Total por Plataforma */}
@@ -427,22 +513,27 @@ export function Dashboard({ data }: { data: DashboardData }) {
                   <li key={p.nome}>
                     <div className="mb-1 flex items-center justify-between text-xs">
                       <span className="text-white">{p.nome}</span>
-                      <span style={{ color: COLORS.muted }}>{brl(p.valor)}</span>
+                      <span style={{ color: COLORS.muted }}>
+                        {p.valor == null ? <Na small /> : brl(p.valor)}
+                      </span>
                     </div>
                     <div className="h-2.5 w-full overflow-hidden rounded-full" style={{ background: COLORS.bg }}>
-                      <div
-                        className="h-full rounded-full"
-                        style={{
-                          width: `${Math.max((p.valor / maxPlataforma) * 100, 1.5)}%`,
-                          background: `linear-gradient(90deg, ${COLORS.cyan}, ${COLORS.green})`,
-                        }}
-                      />
+                      {p.valor != null && (
+                        <div
+                          className="h-full rounded-full"
+                          style={{
+                            width: `${Math.max((p.valor / maxPlataforma) * 100, 1.5)}%`,
+                            background: `linear-gradient(90deg, ${COLORS.cyan}, ${COLORS.green})`,
+                          }}
+                        />
+                      )}
                     </div>
                   </li>
                 ))}
               </ul>
             </Panel>
           </div>
+        </div>
         </div>
       </main>
     </div>
