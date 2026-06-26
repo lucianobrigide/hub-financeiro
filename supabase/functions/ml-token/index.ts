@@ -30,12 +30,15 @@ type State = {
 };
 
 async function readState(): Promise<State | null> {
-  const resp = await fetch(
-    `${SUPABASE_URL}/rest/v1/ml_oauth_state?id=eq.1&select=access_token,expires_at,user_id`,
-    { headers: restHeaders },
-  );
+  // Leitura via RPC SECURITY DEFINER (ml_get_state) — não depende de o
+  // service_role furar a RLS no SELECT direto via PostgREST.
+  const resp = await fetch(`${SUPABASE_URL}/rest/v1/rpc/ml_get_state`, {
+    method: "POST",
+    headers: restHeaders,
+    body: "{}",
+  });
   if (!resp.ok) return null;
-  const rows = await resp.json();
+  const rows = await resp.json().catch(() => null);
   return Array.isArray(rows) && rows.length ? (rows[0] as State) : null;
 }
 
