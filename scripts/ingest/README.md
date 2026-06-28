@@ -1,7 +1,8 @@
 # scripts/ingest — Ingestão de pedidos do Mercado Livre
 
 Scripts de ingestão (Módulo 02) que populam as tabelas `ml_pedidos`,
-`ml_pedido_itens` e `ml_devolucoes` no Supabase a partir da API do Mercado Livre.
+`ml_pedido_itens`, `ml_devolucoes` e `ml_envios` (frete) no Supabase a partir da
+API do Mercado Livre.
 
 > ⚠️ **Etapa de backfill manual** — ainda não há cron. Rodar sob demanda.
 > Só a **bruta** é validada; cancelado/devolvido seguem como pendência.
@@ -35,6 +36,8 @@ node scripts/ingest/ingest_param.mjs 2026-06-12
 | `backfill_junho.mjs` | Backfill 01–25/06/2026, um dia por vez, UPSERT idempotente, sem passe de claims. Log de progresso por dia. | `node scripts/ingest/backfill_junho.mjs` |
 | `ingest_param.mjs` | Ingere **um** dia (argumento `YYYY-MM-DD`), só bruta/itens + `data_cancelamento`. | `node scripts/ingest/ingest_param.mjs 2026-06-12` |
 | `ingest_dia.mjs` | Reprocessa um dia (hardcoded 10/06) incluindo o passe de claims/devoluções (que ainda retorna HTTP 400 — ver doc técnica no Notion). | `node scripts/ingest/ingest_dia.mjs` |
+| `frete_backfill.mjs` | **Frete.** Por dia: captura `order.shipping.id`/`pack_id` → `ml_pedidos`; p/ cada envio ainda não gravado, `GET /shipments/{id}` + `/shipments/{id}/costs` (`x-format-new:true`) → UPSERT `ml_envios`. Idempotente e reiniciável (pula envios já gravados). Reaproveitável como passo do cron diário. | `node scripts/ingest/frete_backfill.mjs` (ou `… 2026-06-10`) |
+| `frete_check.mjs` | **Read-only.** Valida o frete de 1 pedido/pack contra o painel (decompõe gross / comprador / vendedor = linha "Envios"). Não escreve nada. | `node scripts/ingest/frete_check.mjs <order_id\|pack_id>` |
 
 ## Regras (resumo)
 
@@ -44,6 +47,9 @@ node scripts/ingest/ingest_param.mjs 2026-06-12
 - **Bruta** = Σ `valor_total` por `date_closed` (SP), excluindo só `status = 'invalid'`.
 - UPSERT por `pedido_id` → reprocessar não duplica.
 - Rate limit: sequencial, `limit=50`, backoff + jitter no 429.
+- **Frete**: por **envio** (não por unidade). `custo_vendedor` = `senders[].cost` do
+  nosso seller em `/shipments/{id}/costs` = linha "Envios" do painel. UPSERT por
+  `shipment_id` → reprocessar não duplica.
 
 A documentação técnica completa (schema, mapeamento, resultado do backfill,
 pendências) está no Notion: **🏦 Hub Financeiro › Módulo 02 — Doc Técnica: Ingestão ML**.
