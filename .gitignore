@@ -36,6 +36,12 @@ yarn-error.log*
 # vercel
 .vercel
 
+# dados comerciais sensíveis (custos, planilhas) — NUNCA subir
+*.xlsx
+*.xls
+~$*.xlsx
+~$*.xls
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
