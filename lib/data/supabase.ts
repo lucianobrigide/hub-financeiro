@@ -88,6 +88,11 @@ interface ComissaoMl {
   comissao_total_mes: number;
 }
 
+/** Retorno do RPC ml_ads (gasto de ADS do mês: product_ads + brand_ads). */
+interface AdsMl {
+  ads_total_mes: number;
+}
+
 export const supabaseProvider: DataProvider = {
   async listAvailableMonths(): Promise<Month[]> {
     // Só os meses que EXISTEM nas tabelas (hoje: junho/2026).
@@ -109,8 +114,10 @@ export const supabaseProvider: DataProvider = {
     const a = await rpc<AggReal>("ml_dashboard", { p_month: mes });
     // 3 linhas de topo do mini-DRE do card ML (bruto/cancel/líquido) — REAL.
     const fat = await rpc<FatMl>("ml_faturamento_ml", { p_month: mes });
-    // Comissão líquida (régua da margem: paid+partial) — REAL. Única dedução com dado hoje.
+    // Comissão líquida (régua da margem: paid+partial) — REAL. Dedução com dado.
     const com = await rpc<ComissaoMl>("ml_comissao", { p_month: mes });
+    // ADS (product_ads + brand_ads) — REAL. Dedução com dado.
+    const ads = await rpc<AdsMl>("ml_ads", { p_month: mes });
     const totalVenda = a.totalVenda ?? 0;
     const totalPedidos = a.totalPedidos ?? 0;
     const ticketMedio = totalPedidos > 0 ? totalVenda / totalPedidos : 0;
@@ -142,18 +149,20 @@ export const supabaseProvider: DataProvider = {
         { nome: "Amazon", valor: null },              // sem integração
         { nome: "Vendas Internas", valor: null },     // sem integração
       ],
-      // Card ML: topo REAL (bruto/cancel/líquido) + Comissão REAL nas deduções; as outras
-      // 5 deduções e a M.C. seguem null (sem dado ainda). Demais plataformas: tudo null
-      // (sem integração). UI mostra "sem dados" onde for null.
+      // Card ML: topo REAL (bruto/cancel/líquido) + Comissão e ADS REAIS nas deduções; as
+      // outras 4 deduções (Frete/Full/Afiliados/CMV) e a M.C. seguem null (sem dado ainda).
+      // Demais plataformas: tudo null (sem integração). UI mostra "sem dados" onde for null.
       plataformasDre: [
         {
           ...dreVazio("Mercado Livre"),
           faturamentoBruto: fat.faturamentoBruto,
           cancelDevolucoes: fat.cancelDevolucoes,
           faturamentoLiquido: fat.faturamentoLiquido,
-          deducoes: DEDUCAO_LABELS.map((label) =>
-            label === "Comissão" ? { label, valor: com.comissao_total_mes } : { label, valor: null },
-          ),
+          deducoes: DEDUCAO_LABELS.map((label) => {
+            if (label === "Comissão") return { label, valor: com.comissao_total_mes };
+            if (label === "ADS") return { label, valor: ads.ads_total_mes };
+            return { label, valor: null };
+          }),
         },
         dreVazio("Shopee"),
         dreVazio("TikTok Shop"),
