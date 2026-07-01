@@ -398,38 +398,32 @@ export function Dashboard({
             ficam null → "sem dados" (RPC de margem travado / sem integração). */}
         <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {plataformasDre.map((p) => {
-            // MÁSCARA DE EXIBIÇÃO (só a UI): por ora exibimos apenas o Faturamento Bruto.
-            // Cancel./Devoluções, Líquido, deduções e M.C. ficam null NA EXIBIÇÃO → "sem
-            // dados ainda". O provider/RPC seguem devolvendo os valores intactos; religar
-            // depois = apagar este bloco `v` e voltar a usar `p` direto.
-            const v = {
-              ...p,
-              cancelDevolucoes: null,
-              faturamentoLiquido: null,
-              deducoes: p.deducoes.map((d) => ({ ...d, valor: null })),
-              mc: null,
-            };
+            // EXIBIÇÃO 1:1 com o provider — sem máscara na UI. O provider já diferencia:
+            // no caminho real (supabase) as linhas sem dado vêm null → "sem dados ainda"
+            // (o card ML mostra Bruto/Cancel./Líquido REAIS; deduções/M.C. e as demais
+            // plataformas = null); no mock tudo vem 0 → "R$ 0,00". Assim a supressão fica
+            // escopada só ao caminho real, sem vazar pro mock.
             return (
-              <Panel key={v.nome}>
+              <Panel key={p.nome}>
                 <div className="flex h-full flex-col">
-                  <div className="text-sm font-semibold uppercase tracking-wider text-white">{v.nome}</div>
+                  <div className="text-sm font-semibold uppercase tracking-wider text-white">{p.nome}</div>
 
                   {/* Bloco 1 — Faturamento */}
                   <div className="mt-3 space-y-1 text-xs" style={{ color: COLORS.muted }}>
-                    <div className="flex justify-between"><span>Faturamento Bruto</span><span>{v.faturamentoBruto == null ? <Na small /> : brl(v.faturamentoBruto)}</span></div>
-                    <div className="flex justify-between"><span>(−) Cancel. e Devoluções</span><span>{v.cancelDevolucoes == null ? <Na small /> : brl(v.cancelDevolucoes)}</span></div>
+                    <div className="flex justify-between"><span>Faturamento Bruto</span><span>{p.faturamentoBruto == null ? <Na small /> : brl(p.faturamentoBruto)}</span></div>
+                    <div className="flex justify-between"><span>(−) Cancel. e Devoluções</span><span>{p.cancelDevolucoes == null ? <Na small /> : brl(p.cancelDevolucoes)}</span></div>
                   </div>
                   <div
                     className="mt-2 flex justify-between border-t pt-2 text-sm font-bold text-white"
                     style={{ borderColor: COLORS.panelBorder }}
                   >
-                    <span>Faturamento Líquido</span><span>{v.faturamentoLiquido == null ? <Na small /> : brl(v.faturamentoLiquido)}</span>
+                    <span>Faturamento Líquido</span><span>{p.faturamentoLiquido == null ? <Na small /> : brl(p.faturamentoLiquido)}</span>
                   </div>
 
                   {/* Bloco 2 — Deduções */}
                   <div className="mt-3 text-[10px] uppercase tracking-wider" style={{ color: COLORS.muted }}>Deduções</div>
                   <div className="mt-1 space-y-1 text-xs" style={{ color: COLORS.muted }}>
-                    {v.deducoes.map((d) => (
+                    {p.deducoes.map((d) => (
                       <div key={d.label} className="flex justify-between pl-3"><span>{d.label}</span><span>{d.valor == null ? <Na small /> : brl(d.valor)}</span></div>
                     ))}
                   </div>
@@ -439,7 +433,7 @@ export function Dashboard({
                     className="mt-3 flex items-center justify-between border-t pt-2 text-base font-bold"
                     style={{ borderColor: COLORS.panelBorder, color: COLORS.green }}
                   >
-                    <span>M.C. (Margem de Contribuição)</span><span>{v.mc == null ? <Na small /> : brl(v.mc)}</span>
+                    <span>M.C. (Margem de Contribuição)</span><span>{p.mc == null ? <Na small /> : brl(p.mc)}</span>
                   </div>
                 </div>
               </Panel>
