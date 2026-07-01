@@ -1,6 +1,21 @@
 import "server-only";
 
-import type { DashboardData, DataProvider, Month, VendaDiaria } from "./types";
+import type { DashboardData, DataProvider, Month, PlataformaDre, VendaDiaria } from "./types";
+
+/** Labels das 6 deduções do mini-DRE, na ordem do card. */
+const DEDUCAO_LABELS = ["Comissão", "Frete", "ADS", "Full", "Afiliados", "CMV"];
+
+/** DRE de uma plataforma sem dado (tudo null) — UI mostra "sem dados". */
+function dreVazio(nome: string): PlataformaDre {
+  return {
+    nome,
+    faturamentoBruto: null,
+    cancelDevolucoes: null,
+    faturamentoLiquido: null,
+    deducoes: DEDUCAO_LABELS.map((label) => ({ label, valor: null })),
+    mc: null,
+  };
+}
 
 /**
  * Provider de dados REAIS — lê das TABELAS do Supabase (ml_pedidos etc.) via RPCs
@@ -61,6 +76,13 @@ interface AggReal {
   vendasDiarias: VendaDiaria[];
 }
 
+/** Retorno do RPC ml_faturamento_ml (3 linhas de topo do mini-DRE do card ML). */
+interface FatMl {
+  faturamentoBruto: number;
+  cancelDevolucoes: number;
+  faturamentoLiquido: number;
+}
+
 export const supabaseProvider: DataProvider = {
   async listAvailableMonths(): Promise<Month[]> {
     // Só os meses que EXISTEM nas tabelas (hoje: junho/2026).
@@ -80,6 +102,8 @@ export const supabaseProvider: DataProvider = {
     }
 
     const a = await rpc<AggReal>("ml_dashboard", { p_month: mes });
+    // 3 linhas de topo do mini-DRE do card ML (bruto/cancel/líquido) — REAL.
+    const fat = await rpc<FatMl>("ml_faturamento_ml", { p_month: mes });
     const totalVenda = a.totalVenda ?? 0;
     const totalPedidos = a.totalPedidos ?? 0;
     const ticketMedio = totalPedidos > 0 ? totalVenda / totalPedidos : 0;
@@ -111,6 +135,20 @@ export const supabaseProvider: DataProvider = {
         { nome: "Amazon", valor: null },              // sem integração
         { nome: "Vendas Internas", valor: null },     // sem integração
       ],
+      // Card ML: topo REAL (bruto/cancel/líquido); deduções e M.C. null (RPC de margem travado).
+      // Demais plataformas: tudo null (sem integração). UI mostra "sem dados".
+      plataformasDre: [
+        {
+          ...dreVazio("Mercado Livre"),
+          faturamentoBruto: fat.faturamentoBruto,
+          cancelDevolucoes: fat.cancelDevolucoes,
+          faturamentoLiquido: fat.faturamentoLiquido,
+        },
+        dreVazio("Shopee"),
+        dreVazio("TikTok Shop"),
+        dreVazio("Amazon"),
+        dreVazio("Vendas Internas"),
+      ],
       vendasDiarias: a.vendasDiarias ?? [],           // REAL (série diária da bruta)
     };
   },
@@ -134,6 +172,13 @@ function vazio(): DashboardData {
       { nome: "Tik Tok", valor: null },
       { nome: "Amazon", valor: null },
       { nome: "Vendas Internas", valor: null },
+    ],
+    plataformasDre: [
+      dreVazio("Mercado Livre"),
+      dreVazio("Shopee"),
+      dreVazio("TikTok Shop"),
+      dreVazio("Amazon"),
+      dreVazio("Vendas Internas"),
     ],
     vendasDiarias: [],
   };

@@ -62,6 +62,29 @@ export interface Plataforma {
   valor: number | null;
 }
 
+/** Uma linha de dedução do mini-DRE (label + valor). */
+export interface DreLinha {
+  label: string;
+  /** null = sem dado real ainda (ex.: RPC de margem travado). Nunca 0 falso. */
+  valor: number | null;
+}
+
+/**
+ * Mini-demonstrativo (DRE) de uma plataforma, exibido no card.
+ * Topo (bruto/cancel/líquido) pode ser REAL; deduções e M.C. ficam null
+ * enquanto o RPC de margem estiver travado. null => UI mostra "sem dados".
+ */
+export interface PlataformaDre {
+  nome: string;
+  faturamentoBruto: number | null;
+  cancelDevolucoes: number | null;
+  faturamentoLiquido: number | null;
+  /** Comissão, Frete, ADS, Full, Afiliados, CMV — nesta ordem. */
+  deducoes: DreLinha[];
+  /** Margem de Contribuição = líquido − Σ(deduções). null se faltar dedução. */
+  mc: number | null;
+}
+
 /** Uma linha da sidebar de vendas diárias. */
 export interface VendaDiaria {
   /** Data no formato "dd/MM". */
@@ -78,6 +101,8 @@ export interface DashboardData {
   mcMensal: McMensalItem[];
   totalMensal: TotalMensalItem[];
   plataformas: Plataforma[];
+  /** Mini-DRE por plataforma (card de faturamento → M.C.). */
+  plataformasDre: PlataformaDre[];
   vendasDiarias: VendaDiaria[];
 }
 

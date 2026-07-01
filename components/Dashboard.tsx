@@ -1,15 +1,5 @@
 "use client";
 
-import {
-  Bar,
-  CartesianGrid,
-  ComposedChart,
-  Line,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import { useState, useTransition, type ChangeEvent } from "react";
 import type { DashboardData, Month } from "@/lib/data/types";
 import { fetchDashboardAction } from "@/app/actions";
@@ -186,51 +176,6 @@ function MiniKpi({
   );
 }
 
-function LegendDot({ color, label }: { color: string; label: string }) {
-  return (
-    <span className="flex items-center gap-1.5" style={{ color: COLORS.muted }}>
-      <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: color }} />
-      {label}
-    </span>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/* Tooltip custom do gráfico                                           */
-/* ------------------------------------------------------------------ */
-type TooltipItem = { name: string; value: number | null; color: string };
-function ChartTooltip({
-  active,
-  payload,
-  label,
-}: {
-  active?: boolean;
-  payload?: TooltipItem[];
-  label?: string;
-}) {
-  if (!active || !payload?.length) return null;
-  return (
-    <div
-      className="rounded-md border px-3 py-2 text-xs"
-      style={{ background: COLORS.panel, borderColor: COLORS.panelBorder }}
-    >
-      <div className="mb-1 font-semibold text-white">{label}</div>
-      {payload.map((p) => (
-        <div key={p.name} className="flex items-center justify-between gap-3">
-          <span style={{ color: p.color }}>{p.name}</span>
-          <span className="font-medium text-white">
-            {p.value == null
-              ? "— sem dados"
-              : p.name === "Total da Venda"
-                ? `R$ ${p.value.toLocaleString("pt-BR", { minimumFractionDigits: 2 })} Mi`
-                : pct(p.value)}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 /* ------------------------------------------------------------------ */
 /* Dashboard — recebe TODOS os dados via prop (zero hardcode aqui)     */
 /* ------------------------------------------------------------------ */
@@ -256,9 +201,7 @@ export function Dashboard({
     });
   }
 
-  const { kpis, provavel, margemGauge, mcMensal, totalMensal, plataformas, vendasDiarias } = data;
-  const maxPlataforma = Math.max(1, ...plataformas.map((p) => p.valor ?? 0));
-  const temMC = totalMensal.some((t) => t.mcVenda != null || t.mcLiquida != null);
+  const { kpis, provavel, margemGauge, mcMensal, plataformasDre, vendasDiarias } = data;
 
   return (
     <div className="flex min-h-screen font-sans" style={{ background: COLORS.bg, color: COLORS.white }}>
@@ -413,65 +356,6 @@ export function Dashboard({
                 <MiniKpi label="% MC L Últ Mês" value={provavel.mcLUltMes == null ? null : pct(provavel.mcLUltMes)} accent={COLORS.red} />
               </div>
             </Panel>
-
-            {/* SEÇÃO 4 — Total Mensal */}
-            <Panel title="Total Mensal">
-              <div className="h-72 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={totalMensal} margin={{ top: 10, right: 10, bottom: 0, left: -10 }}>
-                    <CartesianGrid stroke={COLORS.panelBorder} vertical={false} />
-                    <XAxis dataKey="mes" tick={{ fill: COLORS.muted, fontSize: 12 }} axisLine={false} tickLine={false} />
-                    <YAxis
-                      yAxisId="venda"
-                      tick={{ fill: COLORS.muted, fontSize: 11 }}
-                      axisLine={false}
-                      tickLine={false}
-                      tickFormatter={(v) => `${v} Mi`}
-                    />
-                    <YAxis
-                      yAxisId="pct"
-                      orientation="right"
-                      tick={{ fill: COLORS.muted, fontSize: 11 }}
-                      axisLine={false}
-                      tickLine={false}
-                      tickFormatter={(v) => `${v}%`}
-                    />
-                    <Tooltip content={<ChartTooltip />} cursor={{ fill: "#ffffff08" }} />
-                    <Bar
-                      yAxisId="venda"
-                      dataKey="venda"
-                      name="Total da Venda"
-                      fill={COLORS.cyan}
-                      radius={[4, 4, 0, 0]}
-                      barSize={36}
-                    />
-                    <Line
-                      yAxisId="pct"
-                      type="monotone"
-                      dataKey="mcVenda"
-                      name="% MC Venda"
-                      stroke={COLORS.green}
-                      strokeWidth={2}
-                      dot={{ r: 3, fill: COLORS.green }}
-                    />
-                    <Line
-                      yAxisId="pct"
-                      type="monotone"
-                      dataKey="mcLiquida"
-                      name="% MC Líquida"
-                      stroke={COLORS.red}
-                      strokeWidth={2}
-                      dot={{ r: 3, fill: COLORS.red }}
-                    />
-                  </ComposedChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="mt-3 flex flex-wrap justify-center gap-5 text-xs">
-                <LegendDot color={COLORS.cyan} label="Total da Venda" />
-                <LegendDot color={COLORS.green} label={temMC ? "% MC Venda" : "% MC Venda (sem dados)"} />
-                <LegendDot color={COLORS.red} label={temMC ? "% MC Líquida" : "% MC Líquida (sem dados)"} />
-              </div>
-            </Panel>
           </div>
 
           {/* ----- COLUNA DIREITA ----- */}
@@ -505,34 +389,62 @@ export function Dashboard({
                 </div>
               )}
             </Panel>
-
-            {/* SEÇÃO 5 — Total por Plataforma */}
-            <Panel title="Total por Plataforma">
-              <ul className="space-y-3">
-                {plataformas.map((p) => (
-                  <li key={p.nome}>
-                    <div className="mb-1 flex items-center justify-between text-xs">
-                      <span className="text-white">{p.nome}</span>
-                      <span style={{ color: COLORS.muted }}>
-                        {p.valor == null ? <Na small /> : brl(p.valor)}
-                      </span>
-                    </div>
-                    <div className="h-2.5 w-full overflow-hidden rounded-full" style={{ background: COLORS.bg }}>
-                      {p.valor != null && (
-                        <div
-                          className="h-full rounded-full"
-                          style={{
-                            width: `${Math.max((p.valor / maxPlataforma) * 100, 1.5)}%`,
-                            background: `linear-gradient(90deg, ${COLORS.cyan}, ${COLORS.green})`,
-                          }}
-                        />
-                      )}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </Panel>
           </div>
+        </div>
+
+        {/* SEÇÃO 6 — Faixa de plataformas: mini-demonstrativos (full-width) */}
+        {/* Dados vêm do provider (data.plataformasDre). Sob DATA_SOURCE=supabase o card
+            do Mercado Livre puxa faturamento REAL; deduções/M.C. e as demais plataformas
+            ficam null → "sem dados" (RPC de margem travado / sem integração). */}
+        <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {plataformasDre.map((p) => {
+            // MÁSCARA DE EXIBIÇÃO (só a UI): por ora exibimos apenas o Faturamento Bruto.
+            // Cancel./Devoluções, Líquido, deduções e M.C. ficam null NA EXIBIÇÃO → "sem
+            // dados ainda". O provider/RPC seguem devolvendo os valores intactos; religar
+            // depois = apagar este bloco `v` e voltar a usar `p` direto.
+            const v = {
+              ...p,
+              cancelDevolucoes: null,
+              faturamentoLiquido: null,
+              deducoes: p.deducoes.map((d) => ({ ...d, valor: null })),
+              mc: null,
+            };
+            return (
+              <Panel key={v.nome}>
+                <div className="flex h-full flex-col">
+                  <div className="text-sm font-semibold uppercase tracking-wider text-white">{v.nome}</div>
+
+                  {/* Bloco 1 — Faturamento */}
+                  <div className="mt-3 space-y-1 text-xs" style={{ color: COLORS.muted }}>
+                    <div className="flex justify-between"><span>Faturamento Bruto</span><span>{v.faturamentoBruto == null ? <Na small /> : brl(v.faturamentoBruto)}</span></div>
+                    <div className="flex justify-between"><span>(−) Cancel. e Devoluções</span><span>{v.cancelDevolucoes == null ? <Na small /> : brl(v.cancelDevolucoes)}</span></div>
+                  </div>
+                  <div
+                    className="mt-2 flex justify-between border-t pt-2 text-sm font-bold text-white"
+                    style={{ borderColor: COLORS.panelBorder }}
+                  >
+                    <span>Faturamento Líquido</span><span>{v.faturamentoLiquido == null ? <Na small /> : brl(v.faturamentoLiquido)}</span>
+                  </div>
+
+                  {/* Bloco 2 — Deduções */}
+                  <div className="mt-3 text-[10px] uppercase tracking-wider" style={{ color: COLORS.muted }}>Deduções</div>
+                  <div className="mt-1 space-y-1 text-xs" style={{ color: COLORS.muted }}>
+                    {v.deducoes.map((d) => (
+                      <div key={d.label} className="flex justify-between pl-3"><span>{d.label}</span><span>{d.valor == null ? <Na small /> : brl(d.valor)}</span></div>
+                    ))}
+                  </div>
+
+                  {/* Bloco 3 — M.C. (destaque final) */}
+                  <div
+                    className="mt-3 flex items-center justify-between border-t pt-2 text-base font-bold"
+                    style={{ borderColor: COLORS.panelBorder, color: COLORS.green }}
+                  >
+                    <span>M.C. (Margem de Contribuição)</span><span>{v.mc == null ? <Na small /> : brl(v.mc)}</span>
+                  </div>
+                </div>
+              </Panel>
+            );
+          })}
         </div>
         </div>
       </main>

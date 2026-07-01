@@ -1,4 +1,21 @@
-import type { DashboardData, DataProvider, Month } from "./types";
+import type { DashboardData, DataProvider, Month, PlataformaDre } from "./types";
+
+/** Labels das 6 deduções do mini-DRE, na ordem do card. */
+const DEDUCAO_LABELS = ["Comissão", "Frete", "ADS", "Full", "Afiliados", "CMV"];
+/** Plataformas do card, na ordem exibida. */
+const PLATAFORMAS_DRE = ["Mercado Livre", "Shopee", "TikTok Shop", "Amazon", "Vendas Internas"];
+
+/** DRE mock (tudo 0) — mantém o card idêntico ao que já mostrava. */
+function mockDre(nome: string): PlataformaDre {
+  return {
+    nome,
+    faturamentoBruto: 0,
+    cancelDevolucoes: 0,
+    faturamentoLiquido: 0,
+    deducoes: DEDUCAO_LABELS.map((label) => ({ label, valor: 0 })),
+    mc: 0,
+  };
+}
 
 /**
  * Dados mockados do dashboard (BASE — mês "neutro").
@@ -48,6 +65,7 @@ const BASE: DashboardData = {
     { nome: "Amazon", valor: 2191.1 },
     { nome: "Vendas Internas", valor: 1219.5 },
   ],
+  plataformasDre: PLATAFORMAS_DRE.map(mockDre),
   vendasDiarias: [
     { data: "15/06", valor: 206708.39, pedidos: 1060 },
     { data: "14/06", valor: 176214.45, pedidos: 913 },
@@ -106,6 +124,8 @@ function dashboardFor(month?: string): DashboardData {
       venda: Math.round(m.venda * f * 100) / 100,
     })),
     plataformas: BASE.plataformas.map((p) => ({ ...p, valor: p.valor == null ? null : r(p.valor) })),
+    // DRE mock permanece 0 (escalar 0 = 0) — card idêntico ao existente, sob mock nada muda.
+    plataformasDre: BASE.plataformasDre.map((d) => ({ ...d })),
     vendasDiarias: BASE.vendasDiarias.map((v) => ({
       ...v,
       valor: r(v.valor),
