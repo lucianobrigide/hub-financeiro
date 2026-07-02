@@ -98,6 +98,11 @@ interface FreteMl {
   frete_total_mes: number;
 }
 
+/** Retorno do RPC ml_full (custo de Fulfillment do mês: armazenamento/coleta/penalidade). */
+interface FullMl {
+  full_total_mes: number;
+}
+
 export const supabaseProvider: DataProvider = {
   async listAvailableMonths(): Promise<Month[]> {
     // Só os meses que EXISTEM nas tabelas (hoje: junho/2026).
@@ -125,6 +130,8 @@ export const supabaseProvider: DataProvider = {
     const ads = await rpc<AdsMl>("ml_ads", { p_month: mes });
     // Frete (custo_vendedor de ml_envios) — REAL. Dedução com dado.
     const frete = await rpc<FreteMl>("ml_frete", { p_month: mes });
+    // Full (armazenamento/coleta/penalidade de Fulfillment) — REAL. Dedução com dado.
+    const full = await rpc<FullMl>("ml_full", { p_month: mes });
     const totalVenda = a.totalVenda ?? 0;
     const totalPedidos = a.totalPedidos ?? 0;
     const ticketMedio = totalPedidos > 0 ? totalVenda / totalPedidos : 0;
@@ -169,6 +176,7 @@ export const supabaseProvider: DataProvider = {
             if (label === "Comissão") return { label, valor: com.comissao_total_mes };
             if (label === "Frete") return { label, valor: frete.frete_total_mes };
             if (label === "ADS") return { label, valor: ads.ads_total_mes };
+            if (label === "Full") return { label, valor: full.full_total_mes };
             return { label, valor: null };
           }),
         },
