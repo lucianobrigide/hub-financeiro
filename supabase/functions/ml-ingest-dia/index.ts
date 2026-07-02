@@ -1,23 +1,26 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
-// MOTOR de ingestão da bruta (ml_pedidos) como Edge Function — porta do motor já
-// validado em scripts/ingest/cron_*.mjs. Reusa EXATAMENTE o padrão da ml-token:
+// MOTOR de ingestão do Hub como Edge Function. Reusa o padrão da ml-token:
 //   • env SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY (auto-injetados)
 //   • auth por x-api-key validada no Vault via RPC public.ml_token_check
 //   • token OAuth vivo via RPC public.ml_get_state (+ ml_refresh_token se stale)
-//   • escrita SÓ via RPCs SECURITY DEFINER (ml_upsert_pedidos / _itens / ml_pedidos_estado)
-// NUNCA imprime token nem service_key. PAT/Management API não entram aqui (isso é dev-only).
+//   • escrita SÓ via RPCs SECURITY DEFINER. PAT/Management API NÃO entram aqui.
+// NUNCA imprime token nem service_key.
 //
-// Modos (POST JSON): { modo: "fechar"|"reconferir"|"ambos" (default ambos),
-//   dia: "YYYY-MM-DD" (fechar; default = ontem SP), janela: 30 (reconferir),
-//   deadlineMs: 380000 }.
-// Guarda do dia corrente: fechar NUNCA processa hoje (fecha só o anterior).
+// Modos (POST JSON): { modo, dia, janela, reconferirDia, limite, deadlineMs }
+//   fechar     — fecha o dia (bruta+comissão+itens) e grava shipping_id (fase A do frete)
+//   reconferir — reconfere modificados (por dia, via reconferirDia; janela p/ full)
+//   ads        — gasto de ADS (product_ads + brand_ads) de UM dia fechado
+//   full       — billing Fulfillment (ciclo atual + anterior)
+//   frete      — /shipments/costs dos envios pendentes da janela trailing, em 1 chunk (cursor)
+//   ambos      — fechar + reconferir (compat)
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ML_API = "https://api.mercadolibre.com";
+const SITE = "MLB";
 const SKEW_MS = 10 * 60 * 1000;
-const MAX_OFFSET = 10000; // teto de paginação do /orders/search
+const MAX_OFFSET = 10000;
 const LIMIT = 50;
 const H = 3600000;
 
@@ -28,17 +31,15 @@ const restHeaders = {
 };
 
 function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json; charset=utf-8" },
-  });
+  return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8" } });
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const enc = encodeURIComponent;
 const p2 = (n: number, l = 2) => String(n).padStart(l, "0");
+const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 
-// ---- datas em America/Sao_Paulo (UTC−03:00 fixo, sem horário de verão) ----
+// ---- datas em America/Sao_Paulo (UTC−03:00 fixo) ----
 const spDate = (iso: string | null | undefined) =>
   iso ? new Date(iso).toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" }) : null;
 const hojeSP = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
@@ -49,6 +50,11 @@ function ontemSP(): string {
 function cutoffSP(janela: number): string {
   const [Y, M, D] = hojeSP().split("-").map(Number);
   return new Date(Date.UTC(Y, M - 1, D - janela)).toISOString().slice(0, 10);
+}
+function mesKey(offsetM: number): string {
+  const [Y, M] = hojeSP().split("-").map(Number);
+  const d = new Date(Date.UTC(Y, M - 1 + offsetM, 1));
+  return `${d.getUTCFullYear()}-${p2(d.getUTCMonth() + 1)}-01`;
 }
 function isoSP(ms: number): string {
   const d = new Date(ms - 3 * H);
@@ -66,7 +72,7 @@ function diasIntervalo(cut: string, hoje: string): string[] {
   return dias;
 }
 
-// ---- auth (x-api-key validada no Vault) ----
+// ---- auth ----
 async function keyIsValid(candidate: string | null): Promise<boolean> {
   if (!candidate) return false;
   const resp = await fetch(`${SUPABASE_URL}/rest/v1/rpc/ml_token_check`, {
@@ -76,12 +82,10 @@ async function keyIsValid(candidate: string | null): Promise<boolean> {
   return (await resp.json().catch(() => false)) === true;
 }
 
-// ---- token OAuth vivo (mesma lógica get-or-refresh da ml-token) ----
+// ---- token OAuth vivo ----
 type State = { access_token: string | null; expires_at: string | null; user_id: string | null };
 async function readState(): Promise<State | null> {
-  const resp = await fetch(`${SUPABASE_URL}/rest/v1/rpc/ml_get_state`, {
-    method: "POST", headers: restHeaders, body: "{}",
-  });
+  const resp = await fetch(`${SUPABASE_URL}/rest/v1/rpc/ml_get_state`, { method: "POST", headers: restHeaders, body: "{}" });
   if (!resp.ok) return null;
   const rows = await resp.json().catch(() => null);
   return Array.isArray(rows) && rows.length ? (rows[0] as State) : null;
@@ -91,9 +95,7 @@ const isFresh = (s: State | null) =>
 async function getToken(): Promise<{ token: string; sellerId: string }> {
   let s = await readState();
   if (!isFresh(s)) {
-    await fetch(`${SUPABASE_URL}/rest/v1/rpc/ml_refresh_token`, {
-      method: "POST", headers: restHeaders, body: JSON.stringify({ p_force: false }),
-    });
+    await fetch(`${SUPABASE_URL}/rest/v1/rpc/ml_refresh_token`, { method: "POST", headers: restHeaders, body: JSON.stringify({ p_force: false }) });
     s = await readState();
   }
   if (!isFresh(s)) throw new Error("token_indisponivel");
@@ -102,18 +104,16 @@ async function getToken(): Promise<{ token: string; sellerId: string }> {
 
 // ---- helpers de banco (RPCs) ----
 async function rpc<T>(fn: string, body: unknown): Promise<T> {
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
-    method: "POST", headers: restHeaders, body: JSON.stringify(body),
-  });
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, { method: "POST", headers: restHeaders, body: JSON.stringify(body) });
   if (!r.ok) throw new Error(`rpc ${fn} HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
   return r.json();
 }
 
-// ---- ML GET com backoff 429 ----
-async function mlGet(token: string, path: string): Promise<any> {
+// ---- ML GET com backoff 429 (extraHeaders p/ Api-Version, x-format-new, etc) ----
+async function mlGet(token: string, path: string, extraHeaders: Record<string, string> = {}): Promise<any> {
   for (let a = 0; a < 6; a++) {
     try {
-      const r = await fetch(ML_API + path, { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } });
+      const r = await fetch(ML_API + path, { headers: { Authorization: `Bearer ${token}`, Accept: "application/json", ...extraHeaders } });
       if (r.status === 429) { await sleep(1000 * 2 ** a); continue; }
       if (!r.ok) return { __err: r.status };
       return r.json();
@@ -122,7 +122,7 @@ async function mlGet(token: string, path: string): Promise<any> {
   return { __err: 429 };
 }
 
-// ---- mapeia pedido do ML → linhas do banco (idêntico ao cron_lib.mjs) ----
+// ---- mapeia pedido do ML → linhas do banco ----
 async function montarPedido(o: any, token: string, resolveCancel: boolean) {
   let cancelDate = o.cancel_detail?.date ?? null;
   let fetched = 0;
@@ -131,8 +131,7 @@ async function montarPedido(o: any, token: string, resolveCancel: boolean) {
     if (!det.__err) { cancelDate = det.cancel_detail?.date ?? null; fetched = 1; }
     await sleep(80);
   }
-  // arredonda a 2 casas (soma float dá ruído tipo 209.8999… → evita falso-positivo)
-  const reemb = Math.round((o.payments ?? []).reduce((s: number, p: any) => s + (Number(p.transaction_amount_refunded) || 0), 0) * 100) / 100;
+  const reemb = r2((o.payments ?? []).reduce((s: number, p: any) => s + (Number(p.transaction_amount_refunded) || 0), 0));
   const qtd = (o.order_items ?? []).reduce((s: number, it: any) => s + (Number(it.quantity) || 0), 0);
   const ped = {
     pedido_id: o.id, data: spDate(o.date_closed), date_closed: o.date_closed, date_created: o.date_created,
@@ -150,26 +149,18 @@ async function montarPedido(o: any, token: string, resolveCancel: boolean) {
 }
 
 async function upsertPedidos(rows: any[]): Promise<void> {
-  for (let i = 0; i < rows.length; i += 100) {
-    const chunk = rows.slice(i, i + 100);
-    if (chunk.length) await rpc("ml_upsert_pedidos", { p_rows: chunk });
-  }
+  for (let i = 0; i < rows.length; i += 100) { const c = rows.slice(i, i + 100); if (c.length) await rpc("ml_upsert_pedidos", { p_rows: c }); }
 }
 async function upsertItens(rows: any[]): Promise<void> {
-  for (let i = 0; i < rows.length; i += 150) {
-    const chunk = rows.slice(i, i + 150);
-    if (chunk.length) await rpc("ml_upsert_itens", { p_rows: chunk });
-  }
+  for (let i = 0; i < rows.length; i += 150) { const c = rows.slice(i, i + 150); if (c.length) await rpc("ml_upsert_itens", { p_rows: c }); }
 }
 
 type Ctx = { t0: number; deadline: number };
 const overBudget = (c: Ctx) => Date.now() - c.t0 > c.deadline;
 
-// ================= FUNÇÃO 1: fechar_dia =================
+// ================= fechar_dia (+ fase A do frete: grava shipping_id) =================
 async function fecharDia(dia: string, token: string, sellerId: string, ctx: Ctx) {
-  if (dia >= hojeSP()) {
-    return { dia, recusado: true, motivo: "dia corrente/futuro — fecha só o anterior" };
-  }
+  if (dia >= hojeSP()) return { dia, recusado: true, motivo: "dia corrente/futuro — fecha só o anterior" };
   const from = `${dia}T00:00:00.000-03:00`, to = `${dia}T23:59:59.999-03:00`;
   const orders: any[] = [];
   let offset = 0, total = Infinity, cap = false, timedOut = false;
@@ -193,11 +184,14 @@ async function fecharDia(dia: string, token: string, sellerId: string, ctx: Ctx)
   }
   await upsertPedidos(pedRows);
   await upsertItens(itemRows);
+  // fase A do frete: grava shipping_id/pack_id (o /costs vem depois, no passo frete)
+  const shipRows = doDia.filter((o) => o.shipping?.id).map((o) => ({ pedido_id: o.id, sid: o.shipping.id, pid: o.pack_id ?? null }));
+  if (shipRows.length) await rpc("ml_set_shipping_ids", { p_rows: shipRows });
   const totalValor = pedRows.reduce((s, r) => s + (Number(r.valor_total) || 0), 0);
-  return { dia, recusado: false, buscados: orders.length, doDia: doDia.length, upsertados: pedRows.length, itens: itemRows.length, valorDia: Math.round(totalValor * 100) / 100, cancelDetail, cap, timedOut };
+  return { dia, recusado: false, buscados: orders.length, doDia: doDia.length, upsertados: pedRows.length, itens: itemRows.length, shippingIds: shipRows.length, valorDia: r2(totalValor), cancelDetail, cap, timedOut };
 }
 
-// ================= FUNÇÃO 2: reconferir (passe A fatiado/dia + passe B cancelled) =================
+// ================= reconferir =================
 async function varrerIntervaloA(token: string, sellerId: string, fromMs: number, toMs: number, orders: any[], st: any, ctx: Ctx) {
   if (overBudget(ctx)) { st.timedOut = true; return; }
   const qs = `seller=${sellerId}&order.date_last_updated.from=${enc(isoSP(fromMs))}&order.date_last_updated.to=${enc(isoSP(toMs))}&sort=date_asc`;
@@ -205,7 +199,7 @@ async function varrerIntervaloA(token: string, sellerId: string, fromMs: number,
   if (j0.__err) throw new Error(`passe A sonda HTTP ${j0.__err}`);
   const total = j0?.paging?.total ?? 0;
   const horas = (toMs - fromMs) / H;
-  if (total > MAX_OFFSET && horas > 1.05) {           // subdivide dia→12h→6h→…
+  if (total > MAX_OFFSET && horas > 1.05) {
     st.subdivisoes++;
     if (horas <= 12.1) st.usou12h = true;
     if (horas <= 6.1) st.usou6h = true;
@@ -230,7 +224,6 @@ async function varrerIntervaloA(token: string, sellerId: string, fromMs: number,
     await sleep(110);
   }
 }
-
 async function paginarRange(token: string, qs: string, ctx: Ctx) {
   const orders: any[] = [];
   let offset = 0, total = Infinity, cap = false, timedOut = false;
@@ -247,14 +240,9 @@ async function paginarRange(token: string, qs: string, ctx: Ctx) {
   }
   return { orders, total, cap, timedOut };
 }
-
 async function reconferir(janela: number, token: string, sellerId: string, ctx: Ctx, diaAlvo: string | null) {
   const hoje = hojeSP();
   const cut = cutoffSP(janela);
-
-  // passe A fatiado por dia. diaAlvo != null → só aquele dia (unidade que o pg_cron
-  // orquestra; um disparo por dia cabe folgado nos 150s da Edge). null → janela cheia
-  // (útil fora da Edge; na Edge estoura o wall-clock além de ~15 dias).
   const dias = diaAlvo ? [diaAlvo] : diasIntervalo(cut, hoje);
   const ordersA: any[] = [];
   const stA: any = { fatias: 0, subdivisoes: 0, usou12h: false, usou6h: false, menorHoras: 24, cap: false, estourou: [], timedOut: false };
@@ -263,21 +251,14 @@ async function reconferir(janela: number, token: string, sellerId: string, ctx: 
     await varrerIntervaloA(token, sellerId, Date.parse(`${D}T00:00:00.000-03:00`), Date.parse(`${D}T23:59:59.999-03:00`), ordersA, stA, ctx);
   }
   const unicosA = new Set(ordersA.map((o) => String(o.id))).size;
-
-  // passe B cancelados explícitos (separado; cabe sob o teto). Mesma fatia de tempo:
-  // dia único quando diaAlvo, senão a janela inteira.
   const bFrom = diaAlvo ? `${diaAlvo}T00:00:00.000-03:00` : `${cut}T00:00:00.000-03:00`;
   const bTo = diaAlvo ? `&order.date_last_updated.to=${enc(`${diaAlvo}T23:59:59.999-03:00`)}` : "";
   const B = await paginarRange(token, `seller=${sellerId}&order.date_last_updated.from=${enc(bFrom)}${bTo}&order.status=cancelled&sort=date_desc`, ctx);
-
-  // dedup por id
   const map = new Map<string, any>();
   for (const o of [...ordersA, ...B.orders]) map.set(String(o.id), o);
   const comDC = [...map.values()].filter((o) => o.date_closed);
   const semHoje = comDC.filter((o) => spDate(o.date_closed) !== hoje);
   const descartadosHoje = comDC.length - semHoje.length;
-
-  // estado ATUAL (update-only: só corrige linha existente, nunca insere)
   const ids = semHoje.map((o) => Number(o.id));
   const antes = new Map<string, { status: string; vr: number }>();
   for (let i = 0; i < ids.length; i += 5000) {
@@ -288,8 +269,6 @@ async function reconferir(janela: number, token: string, sellerId: string, ctx: 
   }
   const existentes = semHoje.filter((o) => antes.has(String(o.id)));
   const foraDaBase = semHoje.length - existentes.length;
-
-  // fase 1: detecta mudança (status/reembolso) — sem chamadas ML
   const mudou: any[] = [], amostra: any[] = [];
   for (const o of existentes) {
     const { ped } = await montarPedido(o, token, false);
@@ -299,8 +278,6 @@ async function reconferir(janela: number, token: string, sellerId: string, ctx: 
       if (amostra.length < 8) amostra.push({ pid: String(o.id), de: prev.status, para: ped.status, reembDe: prev.vr, reembPara: ped.valor_reembolsado });
     }
   }
-
-  // fase 2: só o que mudou → resolve cancel_detail + UPSERT (nas linhas existentes)
   const pedRows: any[] = [], itemRows: any[] = [];
   let cancelDetail = 0;
   for (const o of mudou) {
@@ -309,14 +286,92 @@ async function reconferir(janela: number, token: string, sellerId: string, ctx: 
   }
   await upsertPedidos(pedRows);
   await upsertItens(itemRows);
-
   return {
     janela, cut, hoje, diaAlvo,
-    passeA: { dias: dias.length, fatias: stA.fatias, subdivisoes: stA.subdivisoes, usou12h: stA.usou12h, usou6h: stA.usou6h, menorHoras: stA.menorHoras, unicos: unicosA, cap: stA.cap, estourou: stA.estourou, timedOut: stA.timedOut },
+    passeA: { dias: dias.length, fatias: stA.fatias, subdivisoes: stA.subdivisoes, unicos: unicosA, cap: stA.cap, timedOut: stA.timedOut },
     passeB: { total: B.total, baixados: B.orders.length, cap: B.cap, timedOut: B.timedOut },
-    distintos: map.size, descartadosHoje, avaliados: semHoje.length,
-    foraDaBase, existentes: existentes.length, mudaram: mudou.length, upsertados: pedRows.length, cancelDetail, amostra,
+    distintos: map.size, descartadosHoje, foraDaBase, existentes: existentes.length, mudaram: mudou.length, upsertados: pedRows.length, cancelDetail, amostra,
   };
+}
+
+// ================= ADS (um dia fechado) =================
+async function ingestAds(dia: string, token: string) {
+  const adv = await mlGet(token, `/advertising/advertisers?product_id=PADS`, { "Api-Version": "1" });
+  if (adv.__err) throw new Error(`ads advertisers HTTP ${adv.__err}`);
+  const advId = adv?.advertisers?.[0]?.advertiser_id;
+  if (!advId) return { dia, erro: "sem advertiser PADS" };
+  // product_ads: cost por dia (aggregation DAILY)
+  const pj = await mlGet(token, `/advertising/${SITE}/advertisers/${advId}/product_ads/campaigns/search?limit=500&offset=0&date_from=${dia}&date_to=${dia}&metrics=cost&aggregation_type=DAILY`, { "api-version": "2" });
+  if (pj.__err) throw new Error(`PADS HTTP ${pj.__err}`);
+  let pads = 0; for (const r of (pj.results ?? [])) if (r.date === dia) pads += Number(r.cost) || 0;
+  // brand_ads: consumed_budget por dia
+  const bj = await mlGet(token, `/advertising/advertisers/${advId}/brand_ads/campaigns/metrics?date_from=${dia}&date_to=${dia}&aggregation_type=daily&strategy=marketplace`);
+  if (bj.__err) throw new Error(`BADS HTTP ${bj.__err}`);
+  let bads = 0; for (const m of (bj.metrics ?? [])) if (m.date === dia) bads += Number(m.metrics?.consumed_budget) || 0;
+  const rows = [{ data: dia, produto: "product_ads", gasto: r2(pads) }, { data: dia, produto: "brand_ads", gasto: r2(bads) }];
+  await rpc("ml_upsert_ads", { p_rows: rows });
+  return { dia, advertiser: advId, product_ads: r2(pads), brand_ads: r2(bads) };
+}
+
+// ================= FULL (ciclo atual + anterior) =================
+function mapFull(r: any, KEY: string) {
+  const ci = r.charge_info ?? {}, fi = r.fulfillment_info ?? {}, di = r.document_info ?? {};
+  const cdt = ci.creation_date_time ?? null;
+  return {
+    detail_id: ci.detail_id, creation_date: cdt ? cdt.slice(0, 10) : null, creation_date_time: cdt,
+    tipo: fi.type ?? null, detail_sub_type: ci.detail_sub_type ?? null, detail_amount: ci.detail_amount ?? null,
+    transaction_detail: ci.transaction_detail ?? null, concept_type: ci.concept_type ?? null,
+    warehouse_id: fi.warehouse_id ?? null, sku: fi.sku ?? null, item_id: fi.item_id ?? null,
+    inventory_id: fi.inventory_id ?? null, quantity: fi.quantity ?? null, amount_per_unit: fi.amount_per_unit ?? null,
+    legal_document_number: ci.legal_document_number ?? null, document_id: di.document_id ?? null, periodo_key: KEY,
+  };
+}
+async function ingestFull(token: string, ctx: Ctx) {
+  const keys = [mesKey(0), mesKey(-1)];
+  let grav = 0;
+  for (const KEY of keys) {
+    let fromId = 0, page = 0;
+    while (page < 40) {
+      if (overBudget(ctx)) break;
+      const j = await mlGet(token, `/billing/integration/periods/key/${KEY}/group/ML/full/details?document_type=BILL&limit=1000&from_id=${fromId}&sort_by=ID&order_by=ASC`);
+      if (j.__err) throw new Error(`full HTTP ${j.__err} (key ${KEY})`);
+      const results = j.results ?? [];
+      if (!results.length) break;
+      const rows = results.map((r: any) => mapFull(r, KEY));
+      for (let i = 0; i < rows.length; i += 200) await rpc("ml_upsert_full", { p_rows: rows.slice(i, i + 200) });
+      grav += rows.length;
+      fromId = j.last_id ?? 0; page++;
+      if (!fromId) break;
+    }
+  }
+  return { keys, gravados: grav };
+}
+
+// ================= FRETE (chunk de envios pendentes da janela trailing) =================
+function costType(cv: any, cc: any) {
+  const a = Number(cv) || 0, b = Number(cc) || 0;
+  if (a === 0) return "charged";
+  return b > 0 ? "partially_free" : "free";
+}
+async function ingestFreteChunk(janela: number, limite: number, token: string, sellerId: string, ctx: Ctx) {
+  const cut = cutoffSP(janela);
+  const ids = await rpc<number[]>("ml_frete_pendentes", { p_from: cut, p_limit: limite });
+  const rows: any[] = [];
+  let erros = 0;
+  for (const sid of ids) {
+    if (overBudget(ctx)) break;
+    const sh = await mlGet(token, `/shipments/${sid}`, { "x-format-new": "true" });
+    if (sh.__err) { erros++; continue; }
+    const costs = await mlGet(token, `/shipments/${sid}/costs`, { "x-format-new": "true" });
+    if (costs.__err) { erros++; continue; }
+    const sender = (costs.senders ?? []).find((s: any) => String(s.user_id) === sellerId) ?? (costs.senders ?? [])[0] ?? {};
+    const cv = sender.cost ?? null, cc = costs.receiver?.cost ?? null;
+    rows.push({ shipment_id: sid, custo_vendedor: cv, custo_comprador: cc, gross_amount: costs.gross_amount ?? null, logistic_type: sh.logistic_type ?? null, cost_type: costType(cv, cc), status: sh.status ?? null, last_updated: sh.last_updated ?? null });
+    await sleep(60);
+  }
+  if (rows.length) await rpc("ml_upsert_envios", { p_rows: rows });
+  // restam=true sinaliza ao orquestrador pra chamar de novo (cursor por "pendentes")
+  return { janela, pediu: ids.length, gravados: rows.length, erros, restam: ids.length >= limite };
 }
 
 // ================= handler =================
@@ -328,7 +383,8 @@ Deno.serve(async (req) => {
   const modo = body.modo ?? "ambos";
   const janela = Number(body.janela ?? 30);
   const dia = body.dia ?? ontemSP();
-  const reconferirDia = body.reconferirDia ?? null; // 1 dia por disparo (o pg_cron orquestra a janela)
+  const reconferirDia = body.reconferirDia ?? null;
+  const limite = Number(body.limite ?? 250);
   const ctx: Ctx = { t0: Date.now(), deadline: Number(body.deadlineMs ?? 140000) };
 
   try {
@@ -336,6 +392,9 @@ Deno.serve(async (req) => {
     const out: any = { modo, seller: sellerId, hoje: hojeSP() };
     if (modo === "fechar" || modo === "ambos") out.fechar = await fecharDia(dia, token, sellerId, ctx);
     if (modo === "reconferir" || modo === "ambos") out.reconferir = await reconferir(janela, token, sellerId, ctx, reconferirDia);
+    if (modo === "ads") out.ads = await ingestAds(dia, token);
+    if (modo === "full") out.full = await ingestFull(token, ctx);
+    if (modo === "frete") out.frete = await ingestFreteChunk(janela, limite, token, sellerId, ctx);
     out.elapsedMs = Date.now() - ctx.t0;
     return json(out);
   } catch (e) {
