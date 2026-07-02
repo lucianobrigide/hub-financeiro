@@ -103,6 +103,11 @@ interface FullMl {
   full_total_mes: number;
 }
 
+/** Retorno do RPC ml_cmv (custo da mercadoria vendida no mês, régua paid+partial). */
+interface CmvMl {
+  cmv_total_mes: number;
+}
+
 export const supabaseProvider: DataProvider = {
   async listAvailableMonths(): Promise<Month[]> {
     // Só os meses que EXISTEM nas tabelas (hoje: junho/2026).
@@ -132,6 +137,24 @@ export const supabaseProvider: DataProvider = {
     const frete = await rpc<FreteMl>("ml_frete", { p_month: mes });
     // Full (armazenamento/coleta/penalidade de Fulfillment) — REAL. Dedução com dado.
     const full = await rpc<FullMl>("ml_full", { p_month: mes });
+    // CMV (custo da mercadoria vendida) — REAL. Maior dedução; fecha a M.C.
+    const cmv = await rpc<CmvMl>("ml_cmv", { p_month: mes });
+
+    // Deduções do card ML + M.C. Afiliados = 0 por ora (sem fonte automática, imaterial).
+    // M.C. = Faturamento Líquido − Σ deduções (todas as 6 com valor → margem fecha).
+    const deducoesMl = DEDUCAO_LABELS.map((label) => {
+      if (label === "Comissão") return { label, valor: com.comissao_total_mes };
+      if (label === "Frete") return { label, valor: frete.frete_total_mes };
+      if (label === "ADS") return { label, valor: ads.ads_total_mes };
+      if (label === "Full") return { label, valor: full.full_total_mes };
+      if (label === "CMV") return { label, valor: cmv.cmv_total_mes };
+      if (label === "Afiliados") return { label, valor: 0 };
+      return { label, valor: null };
+    });
+    const totalDeducoesMl = deducoesMl.reduce((s, d) => s + (d.valor ?? 0), 0);
+    const mcMl = fat.faturamentoLiquido == null
+      ? null
+      : Math.round((fat.faturamentoLiquido - totalDeducoesMl) * 100) / 100;
     const totalVenda = a.totalVenda ?? 0;
     const totalPedidos = a.totalPedidos ?? 0;
     const ticketMedio = totalPedidos > 0 ? totalVenda / totalPedidos : 0;
@@ -163,22 +186,17 @@ export const supabaseProvider: DataProvider = {
         { nome: "Amazon", valor: null },              // sem integração
         { nome: "Vendas Internas", valor: null },     // sem integração
       ],
-      // Card ML: topo REAL (bruto/cancel/líquido) + Comissão e ADS REAIS nas deduções; as
-      // outras 4 deduções (Frete/Full/Afiliados/CMV) e a M.C. seguem null (sem dado ainda).
-      // Demais plataformas: tudo null (sem integração). UI mostra "sem dados" onde for null.
+      // Card ML: topo REAL + as 6 deduções (Comissão/Frete/ADS/Full/CMV reais; Afiliados=0)
+      // e a M.C. calculada (Líquido − Σ deduções). Demais plataformas: tudo null (sem
+      // integração). UI mostra "sem dados" onde for null.
       plataformasDre: [
         {
           ...dreVazio("Mercado Livre"),
           faturamentoBruto: fat.faturamentoBruto,
           cancelDevolucoes: fat.cancelDevolucoes,
           faturamentoLiquido: fat.faturamentoLiquido,
-          deducoes: DEDUCAO_LABELS.map((label) => {
-            if (label === "Comissão") return { label, valor: com.comissao_total_mes };
-            if (label === "Frete") return { label, valor: frete.frete_total_mes };
-            if (label === "ADS") return { label, valor: ads.ads_total_mes };
-            if (label === "Full") return { label, valor: full.full_total_mes };
-            return { label, valor: null };
-          }),
+          deducoes: deducoesMl,
+          mc: mcMl,
         },
         dreVazio("Shopee"),
         dreVazio("TikTok Shop"),
