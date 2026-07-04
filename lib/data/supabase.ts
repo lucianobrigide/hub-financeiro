@@ -108,6 +108,12 @@ interface CmvMl {
   cmv_total_mes: number;
 }
 
+/** Retorno do RPC az_faturamento (bruta Amazon do mês, régua Shipped+Unshipped). */
+interface FatAz {
+  faturamento_bruto: number;
+  total_pedidos: number;
+}
+
 export const supabaseProvider: DataProvider = {
   async listAvailableMonths(): Promise<Month[]> {
     // Só os meses que EXISTEM nas tabelas (hoje: junho/2026).
@@ -139,6 +145,8 @@ export const supabaseProvider: DataProvider = {
     const full = await rpc<FullMl>("ml_full", { p_month: mes });
     // CMV (custo da mercadoria vendida) — REAL. Maior dedução; fecha a M.C.
     const cmv = await rpc<CmvMl>("ml_cmv", { p_month: mes });
+    // Amazon — bruta (régua Shipped+Unshipped, competência PurchaseDate).
+    const azFat = await rpc<FatAz>("az_faturamento", { p_month: mes });
 
     // Deduções do card ML + M.C. Afiliados = 0 por ora (sem fonte automática, imaterial).
     // M.C. = Faturamento Líquido − Σ deduções (todas as 6 com valor → margem fecha).
@@ -183,7 +191,7 @@ export const supabaseProvider: DataProvider = {
         { nome: "Mercado Livre", valor: totalVenda }, // REAL (toda a base é ML)
         { nome: "Shopee", valor: null },              // sem integração
         { nome: "Tik Tok", valor: null },             // sem integração
-        { nome: "Amazon", valor: null },              // sem integração
+        { nome: "Amazon", valor: azFat.faturamento_bruto || null },
         { nome: "Vendas Internas", valor: null },     // sem integração
       ],
       // Card ML: topo REAL + as 6 deduções (Comissão/Frete/ADS/Full/CMV reais; Afiliados=0)
@@ -200,7 +208,10 @@ export const supabaseProvider: DataProvider = {
         },
         dreVazio("Shopee"),
         dreVazio("TikTok Shop"),
-        dreVazio("Amazon"),
+        {
+          ...dreVazio("Amazon"),
+          faturamentoBruto: azFat.faturamento_bruto || null,
+        },
         dreVazio("Vendas Internas"),
       ],
       vendasDiarias: a.vendasDiarias ?? [],           // REAL (série diária da bruta)
