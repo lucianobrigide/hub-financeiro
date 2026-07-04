@@ -130,6 +130,13 @@ interface ComissaoAz {
   pedidos_total: number;
 }
 
+/** Retorno do RPC az_frete_mes (híbrido: real onde confirmado, estimado onde não). */
+interface FreteAz {
+  frete_total: number;
+  pedidos_confirmados: number;
+  pedidos_total: number;
+}
+
 export const supabaseProvider: DataProvider = {
   async listAvailableMonths(): Promise<Month[]> {
     // Só os meses que EXISTEM nas tabelas (hoje: junho/2026).
@@ -167,6 +174,8 @@ export const supabaseProvider: DataProvider = {
     const azDed = await rpc<DedAz>("az_deducoes", { p_month: mes });
     // Amazon — comissão híbrida (real onde confirmado, estimada onde não).
     const azCom = await rpc<ComissaoAz>("az_comissao", { p_month: mes });
+    // Amazon — frete híbrido (real MFNPostageFee onde confirmado, R$27,95 estimado onde não).
+    const azFrete = await rpc<FreteAz>("az_frete_mes", { p_month: mes });
 
     // Deduções do card ML + M.C. Afiliados = 0 por ora (sem fonte automática, imaterial).
     // M.C. = Faturamento Líquido − Σ deduções (todas as 6 com valor → margem fecha).
@@ -237,6 +246,12 @@ export const supabaseProvider: DataProvider = {
           const comNota = azCom.pedidos_total > 0
             ? `${azCom.pedidos_confirmados} de ${azCom.pedidos_total} confirmados`
             : undefined;
+          const freteNota = azFrete.pedidos_total > 0
+            ? `${azFrete.pedidos_confirmados} de ${azFrete.pedidos_total} confirmados`
+            : undefined;
+          const azMc = azLiquido != null
+            ? Math.round((azLiquido - (azCom.comissao_total || 0) - (azFrete.frete_total || 0)) * 100) / 100
+            : null;
           return {
             ...dreVazio("Amazon"),
             faturamentoBruto: azBruto,
@@ -244,9 +259,10 @@ export const supabaseProvider: DataProvider = {
             faturamentoLiquido: azLiquido,
             deducoes: DEDUCAO_LABELS.map((label) => {
               if (label === "Comissão") return { label, valor: azCom.comissao_total || null, nota: comNota };
-              if (label === "Frete") return { label, valor: azDed.easy_ship || null };
+              if (label === "Frete") return { label, valor: azFrete.frete_total || null, nota: freteNota };
               return { label, valor: null };
             }),
+            mc: azMc,
           };
         })(),
         dreVazio("Vendas Internas"),

@@ -1,8 +1,9 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 // Ingestão de pedidos Amazon SP-API (Orders v0). Modos:
-//   fechar   — fecha pedidos de UM dia (PurchaseDate, BRT)
-//   backfill — ingere todos os pedidos de um intervalo
+//   fechar    — fecha pedidos de UM dia + estima comissão + estima frete
+//   confirmar — confirma comissões e frete pendentes via Finances API
+//   backfill  — ingere todos os pedidos de um intervalo
 // Auth: x-api-key (az_token_key no Vault). Token OAuth via az_get_state/az_refresh_token.
 // Volume baixo (~0-2 pedidos/dia), rate limit tranquilo.
 
@@ -183,16 +184,35 @@ async function estimateCommission(
   return comRows;
 }
 
-// ---- Confirmar comissão via Finances API ----
-async function confirmCommissions(token: string): Promise<{
+// ---- Confirmar comissão + frete via Finances API (uma chamada por pedido) ----
+async function confirmAll(token: string): Promise<{
   confirmados: number;
+  frete_confirmados: number;
   pendentes: number;
 }> {
-  const pending = await rpc<any[]>("az_pendentes_comissao", {});
-  const orders = Array.isArray(pending) ? pending : [];
-  if (orders.length === 0) return { confirmados: 0, pendentes: 0 };
+  const pendingCom = await rpc<any[]>("az_pendentes_comissao", {});
+  const pendingFrete = await rpc<any[]>("az_pendentes_frete", {});
+
+  const orderMap = new Map<string, any>();
+  for (const o of (Array.isArray(pendingCom) ? pendingCom : [])) {
+    orderMap.set(o.amazon_order_id, { ...o, need_com: true, need_frete: false });
+  }
+  for (const o of (Array.isArray(pendingFrete) ? pendingFrete : [])) {
+    const ex = orderMap.get(o.amazon_order_id);
+    if (ex) {
+      ex.need_frete = true;
+      ex.frete_estimado = o.frete_estimado;
+    } else {
+      orderMap.set(o.amazon_order_id, { ...o, need_com: false, need_frete: true });
+    }
+  }
+
+  const orders = Array.from(orderMap.values());
+  if (orders.length === 0) return { confirmados: 0, frete_confirmados: 0, pendentes: 0 };
 
   const comRows: any[] = [];
+  const freteRows: any[] = [];
+
   for (const o of orders) {
     const data = await spGet(
       token,
@@ -202,42 +222,70 @@ async function confirmCommissions(token: string): Promise<{
       await sleep(2000);
       continue;
     }
-    const shipments =
-      data?.payload?.FinancialEvents?.ShipmentEventList ?? [];
-    let totalFees = 0;
-    let found = false;
-    for (const s of shipments) {
-      for (const item of s.ShipmentItemList ?? []) {
-        for (const fee of item.ItemFeeList ?? []) {
-          if (
-            fee.FeeType === "Commission" ||
-            fee.FeeType === "AmazonForAllFee"
-          ) {
-            totalFees += Math.abs(fee.FeeAmount?.CurrencyAmount ?? 0);
-            found = true;
+
+    if (o.need_com) {
+      const shipments =
+        data?.payload?.FinancialEvents?.ShipmentEventList ?? [];
+      let totalFees = 0;
+      let found = false;
+      for (const s of shipments) {
+        for (const item of s.ShipmentItemList ?? []) {
+          for (const fee of item.ItemFeeList ?? []) {
+            if (
+              fee.FeeType === "Commission" ||
+              fee.FeeType === "AmazonForAllFee"
+            ) {
+              totalFees += Math.abs(fee.FeeAmount?.CurrencyAmount ?? 0);
+              found = true;
+            }
           }
         }
       }
+      if (found) {
+        comRows.push({
+          amazon_order_id: o.amazon_order_id,
+          comissao_estimada: o.comissao_estimada,
+          comissao_real: Math.round(totalFees * 100) / 100,
+          confirmado: true,
+          fonte: "finances",
+        });
+      }
     }
-    if (found) {
-      comRows.push({
-        amazon_order_id: o.amazon_order_id,
-        comissao_estimada: o.comissao_estimada,
-        comissao_real: Math.round(totalFees * 100) / 100,
-        confirmado: true,
-        fonte: "finances",
-      });
+
+    if (o.need_frete) {
+      const services =
+        data?.payload?.FinancialEvents?.ServiceFeeEventList ?? [];
+      let freteTotal = 0;
+      let freteFound = false;
+      for (const svc of services) {
+        for (const fee of svc.FeeList ?? []) {
+          if (fee.FeeType === "MFNPostageFee") {
+            freteTotal += Math.abs(fee.FeeAmount?.CurrencyAmount ?? 0);
+            freteFound = true;
+          }
+        }
+      }
+      if (freteFound) {
+        freteRows.push({
+          amazon_order_id: o.amazon_order_id,
+          frete_estimado: o.frete_estimado ?? 27.95,
+          frete_real: Math.round(freteTotal * 100) / 100,
+          confirmado: true,
+          fonte: "finances",
+        });
+      }
     }
+
     await sleep(2000);
   }
 
-  if (comRows.length > 0) {
-    await rpc<number>("az_upsert_comissao", { p_rows: comRows });
-  }
+  if (comRows.length > 0) await rpc<number>("az_upsert_comissao", { p_rows: comRows });
+  if (freteRows.length > 0) await rpc<number>("az_upsert_frete", { p_rows: freteRows });
 
   return {
     confirmados: comRows.length,
-    pendentes: orders.length - comRows.length,
+    frete_confirmados: freteRows.length,
+    pendentes: orders.length - Math.max(comRows.length, freteRows.length),
   };
 }
 
@@ -360,11 +408,28 @@ Deno.serve(async (req) => {
     }
 
     let comissao_estimadas = 0;
+    let frete_estimados = 0;
     if (rows.length > 0) {
       const comRows = await estimateCommission(token, rows);
       if (comRows.length > 0) {
         await rpc<number>("az_upsert_comissao", { p_rows: comRows });
         comissao_estimadas = comRows.length;
+      }
+      const freteRows = rows
+        .filter(
+          (r) =>
+            !["Canceled", "Pending", "Unfulfillable"].includes(r.status) &&
+            r.total,
+        )
+        .map((r) => ({
+          amazon_order_id: r.amazon_order_id,
+          frete_estimado: 27.95,
+          confirmado: false,
+          fonte: "estimate",
+        }));
+      if (freteRows.length > 0) {
+        await rpc<number>("az_upsert_frete", { p_rows: freteRows });
+        frete_estimados = freteRows.length;
       }
     }
 
@@ -374,11 +439,12 @@ Deno.serve(async (req) => {
       valor: Math.round(sumBruta(rows) * 100) / 100,
       status_counts: countStatuses(rows),
       comissao_estimadas,
+      frete_estimados,
     });
   }
 
   if (modo === "confirmar") {
-    const result = await confirmCommissions(token);
+    const result = await confirmAll(token);
     return json(result);
   }
 
