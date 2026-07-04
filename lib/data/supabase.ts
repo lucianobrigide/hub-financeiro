@@ -137,6 +137,13 @@ interface FreteAz {
   pedidos_total: number;
 }
 
+/** Retorno do RPC az_cmv (custo × quantidade dos itens vendidos). */
+interface CmvAz {
+  cmv_total: number;
+  itens_com_custo: number;
+  itens_total: number;
+}
+
 export const supabaseProvider: DataProvider = {
   async listAvailableMonths(): Promise<Month[]> {
     // Só os meses que EXISTEM nas tabelas (hoje: junho/2026).
@@ -176,6 +183,8 @@ export const supabaseProvider: DataProvider = {
     const azCom = await rpc<ComissaoAz>("az_comissao", { p_month: mes });
     // Amazon — frete híbrido (real MFNPostageFee onde confirmado, R$27,95 estimado onde não).
     const azFrete = await rpc<FreteAz>("az_frete_mes", { p_month: mes });
+    // Amazon — CMV (custo × quantidade dos itens vendidos, via ml_custo_produto).
+    const azCmv = await rpc<CmvAz>("az_cmv", { p_month: mes });
 
     // Deduções do card ML + M.C. Afiliados = 0 por ora (sem fonte automática, imaterial).
     // M.C. = Faturamento Líquido − Σ deduções (todas as 6 com valor → margem fecha).
@@ -249,19 +258,26 @@ export const supabaseProvider: DataProvider = {
           const freteNota = azFrete.pedidos_total > 0
             ? `${azFrete.pedidos_confirmados} de ${azFrete.pedidos_total} confirmados`
             : undefined;
+          const azCmvVal = azCmv.itens_total > 0 ? azCmv.cmv_total : null;
+          const cmvNota = azCmv.itens_total > 0
+            ? `${azCmv.itens_com_custo} de ${azCmv.itens_total} com custo`
+            : undefined;
+          const deducoesAz = DEDUCAO_LABELS.map((label) => {
+            if (label === "Comissão") return { label, valor: azCom.comissao_total || null, nota: comNota };
+            if (label === "Frete") return { label, valor: azFrete.frete_total || null, nota: freteNota };
+            if (label === "CMV") return { label, valor: azCmvVal, nota: cmvNota };
+            return { label, valor: null };
+          });
+          const totalDeducoesAz = deducoesAz.reduce((s, d) => s + (d.valor ?? 0), 0);
           const azMc = azLiquido != null
-            ? Math.round((azLiquido - (azCom.comissao_total || 0) - (azFrete.frete_total || 0)) * 100) / 100
+            ? Math.round((azLiquido - totalDeducoesAz) * 100) / 100
             : null;
           return {
             ...dreVazio("Amazon"),
             faturamentoBruto: azBruto,
             cancelDevolucoes: azRefund,
             faturamentoLiquido: azLiquido,
-            deducoes: DEDUCAO_LABELS.map((label) => {
-              if (label === "Comissão") return { label, valor: azCom.comissao_total || null, nota: comNota };
-              if (label === "Frete") return { label, valor: azFrete.frete_total || null, nota: freteNota };
-              return { label, valor: null };
-            }),
+            deducoes: deducoesAz,
             mc: azMc,
           };
         })(),

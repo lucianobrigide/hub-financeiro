@@ -132,23 +132,40 @@ async function spPost(token: string, path: string, body: unknown): Promise<any> 
   return { __err: 429, __msg: "max_retries" };
 }
 
-// ---- Estimar comissão via getMyFeesEstimate ----
+// ---- Estimar comissão via getMyFeesEstimate + coletar itens ----
 async function estimateCommission(
   token: string,
   rows: any[],
-): Promise<any[]> {
+): Promise<{ comRows: any[]; itemRows: any[] }> {
   const valid = rows.filter(
     (r) =>
       !["Canceled", "Pending", "Unfulfillable"].includes(r.status) &&
       r.total,
   );
   const comRows: any[] = [];
+  const itemRows: any[] = [];
   for (const row of valid) {
     const items = await spGet(
       token,
       `/orders/v0/orders/${row.amazon_order_id}/orderItems`,
     );
-    const asin = items?.payload?.OrderItems?.[0]?.ASIN;
+    const orderItems = items?.payload?.OrderItems ?? [];
+    const asin = orderItems[0]?.ASIN;
+
+    for (const oi of orderItems) {
+      if (oi.SellerSKU) {
+        itemRows.push({
+          amazon_order_id: row.amazon_order_id,
+          seller_sku: oi.SellerSKU,
+          asin: oi.ASIN,
+          quantidade: oi.QuantityOrdered ?? 1,
+          preco_unitario: oi.ItemPrice?.Amount
+            ? Number(oi.ItemPrice.Amount) / (oi.QuantityOrdered || 1)
+            : null,
+        });
+      }
+    }
+
     let estimated = Math.round(Number(row.total) * 0.12 * 100) / 100;
     if (asin) {
       const fees = await spPost(
@@ -181,7 +198,7 @@ async function estimateCommission(
     });
     await sleep(1500);
   }
-  return comRows;
+  return { comRows, itemRows };
 }
 
 // ---- Confirmar comissão + frete via Finances API (uma chamada por pedido) ----
@@ -409,11 +426,16 @@ Deno.serve(async (req) => {
 
     let comissao_estimadas = 0;
     let frete_estimados = 0;
+    let itens_gravados = 0;
     if (rows.length > 0) {
-      const comRows = await estimateCommission(token, rows);
+      const { comRows, itemRows } = await estimateCommission(token, rows);
       if (comRows.length > 0) {
         await rpc<number>("az_upsert_comissao", { p_rows: comRows });
         comissao_estimadas = comRows.length;
+      }
+      if (itemRows.length > 0) {
+        await rpc<number>("az_upsert_itens", { p_rows: itemRows });
+        itens_gravados = itemRows.length;
       }
       const freteRows = rows
         .filter(
@@ -440,6 +462,7 @@ Deno.serve(async (req) => {
       status_counts: countStatuses(rows),
       comissao_estimadas,
       frete_estimados,
+      itens_gravados,
     });
   }
 
