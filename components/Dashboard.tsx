@@ -424,7 +424,10 @@ export function Dashboard({
                   <div className="mt-3 text-[10px] uppercase tracking-wider" style={{ color: COLORS.muted }}>Deduções</div>
                   <div className="mt-1 space-y-1 text-xs" style={{ color: COLORS.muted }}>
                     {p.deducoes.map((d) => (
-                      <div key={d.label} className="flex justify-between pl-3"><span>{d.label}</span><span>{d.valor == null ? <Na small /> : brl(d.valor)}</span></div>
+                      <div key={d.label} className="pl-3">
+                        <div className="flex justify-between"><span>{d.label}</span><span>{d.valor == null ? <Na small /> : brl(d.valor)}</span></div>
+                        {d.nota && <div className="text-right text-[9px] italic" style={{ color: COLORS.cyan }}>{d.nota}</div>}
+                      </div>
                     ))}
                   </div>
 

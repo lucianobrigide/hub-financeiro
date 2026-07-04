@@ -67,6 +67,8 @@ export interface DreLinha {
   label: string;
   /** null = sem dado real ainda (ex.: RPC de margem travado). Nunca 0 falso. */
   valor: number | null;
+  /** Indicador opcional (ex.: "3 de 7 confirmados"). */
+  nota?: string;
 }
 
 /**

@@ -114,6 +114,22 @@ interface FatAz {
   total_pedidos: number;
 }
 
+/** Retorno do RPC az_deducoes (settlement: Easy Ship, refund). */
+interface DedAz {
+  comissao: number;
+  easy_ship: number;
+  refund: number;
+  pedidos_com_comissao: number;
+  pedidos_total: number;
+}
+
+/** Retorno do RPC az_comissao (híbrida: real onde confirmado, estimada onde não). */
+interface ComissaoAz {
+  comissao_total: number;
+  pedidos_confirmados: number;
+  pedidos_total: number;
+}
+
 export const supabaseProvider: DataProvider = {
   async listAvailableMonths(): Promise<Month[]> {
     // Só os meses que EXISTEM nas tabelas (hoje: junho/2026).
@@ -147,6 +163,10 @@ export const supabaseProvider: DataProvider = {
     const cmv = await rpc<CmvMl>("ml_cmv", { p_month: mes });
     // Amazon — bruta (régua Shipped+Unshipped, competência PurchaseDate).
     const azFat = await rpc<FatAz>("az_faturamento", { p_month: mes });
+    // Amazon — deduções do settlement (Easy Ship, refund).
+    const azDed = await rpc<DedAz>("az_deducoes", { p_month: mes });
+    // Amazon — comissão híbrida (real onde confirmado, estimada onde não).
+    const azCom = await rpc<ComissaoAz>("az_comissao", { p_month: mes });
 
     // Deduções do card ML + M.C. Afiliados = 0 por ora (sem fonte automática, imaterial).
     // M.C. = Faturamento Líquido − Σ deduções (todas as 6 com valor → margem fecha).
@@ -208,10 +228,27 @@ export const supabaseProvider: DataProvider = {
         },
         dreVazio("Shopee"),
         dreVazio("TikTok Shop"),
-        {
-          ...dreVazio("Amazon"),
-          faturamentoBruto: azFat.faturamento_bruto || null,
-        },
+        (() => {
+          const azBruto = azFat.faturamento_bruto || null;
+          const azRefund = azBruto != null ? azDed.refund : null;
+          const azLiquido = azBruto != null
+            ? Math.round((azFat.faturamento_bruto - azDed.refund) * 100) / 100
+            : null;
+          const comNota = azCom.pedidos_total > 0
+            ? `${azCom.pedidos_confirmados} de ${azCom.pedidos_total} confirmados`
+            : undefined;
+          return {
+            ...dreVazio("Amazon"),
+            faturamentoBruto: azBruto,
+            cancelDevolucoes: azRefund,
+            faturamentoLiquido: azLiquido,
+            deducoes: DEDUCAO_LABELS.map((label) => {
+              if (label === "Comissão") return { label, valor: azCom.comissao_total || null, nota: comNota };
+              if (label === "Frete") return { label, valor: azDed.easy_ship || null };
+              return { label, valor: null };
+            }),
+          };
+        })(),
         dreVazio("Vendas Internas"),
       ],
       vendasDiarias: a.vendasDiarias ?? [],           // REAL (série diária da bruta)

@@ -105,6 +105,142 @@ async function spGet(token: string, path: string): Promise<any> {
   return { __err: 429, __msg: "max_retries" };
 }
 
+// ---- SP-API POST com retry 429 ----
+async function spPost(token: string, path: string, body: unknown): Promise<any> {
+  for (let a = 0; a < 5; a++) {
+    try {
+      const r = await fetch(SP_API + path, {
+        method: "POST",
+        headers: {
+          "x-amz-access-token": token,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+      if (r.status === 429) {
+        await sleep(2000 * 2 ** a);
+        continue;
+      }
+      if (!r.ok) return { __err: r.status, __msg: (await r.text()).slice(0, 300) };
+      return r.json();
+    } catch {
+      await sleep(1000 * 2 ** a);
+    }
+  }
+  return { __err: 429, __msg: "max_retries" };
+}
+
+// ---- Estimar comissão via getMyFeesEstimate ----
+async function estimateCommission(
+  token: string,
+  rows: any[],
+): Promise<any[]> {
+  const valid = rows.filter(
+    (r) =>
+      !["Canceled", "Pending", "Unfulfillable"].includes(r.status) &&
+      r.total,
+  );
+  const comRows: any[] = [];
+  for (const row of valid) {
+    const items = await spGet(
+      token,
+      `/orders/v0/orders/${row.amazon_order_id}/orderItems`,
+    );
+    const asin = items?.payload?.OrderItems?.[0]?.ASIN;
+    let estimated = Math.round(Number(row.total) * 0.12 * 100) / 100;
+    if (asin) {
+      const fees = await spPost(
+        token,
+        `/products/fees/v0/items/${asin}/feesEstimate`,
+        {
+          FeesEstimateRequest: {
+            MarketplaceId: MARKETPLACE_BR,
+            IsAmazonFulfilled: false,
+            PriceToEstimateFees: {
+              ListingPrice: {
+                CurrencyCode: "BRL",
+                Amount: Number(row.total),
+              },
+            },
+            Identifier: row.amazon_order_id,
+          },
+        },
+      );
+      const amt =
+        fees?.payload?.FeesEstimateResult?.FeesEstimate?.TotalFeesEstimate
+          ?.Amount;
+      if (amt) estimated = amt;
+    }
+    comRows.push({
+      amazon_order_id: row.amazon_order_id,
+      comissao_estimada: estimated,
+      confirmado: false,
+      fonte: "estimate",
+    });
+    await sleep(1500);
+  }
+  return comRows;
+}
+
+// ---- Confirmar comissão via Finances API ----
+async function confirmCommissions(token: string): Promise<{
+  confirmados: number;
+  pendentes: number;
+}> {
+  const pending = await rpc<any[]>("az_pendentes_comissao", {});
+  const orders = Array.isArray(pending) ? pending : [];
+  if (orders.length === 0) return { confirmados: 0, pendentes: 0 };
+
+  const comRows: any[] = [];
+  for (const o of orders) {
+    const data = await spGet(
+      token,
+      `/finances/v0/orders/${o.amazon_order_id}/financialEvents`,
+    );
+    if (data?.__err) {
+      await sleep(2000);
+      continue;
+    }
+    const shipments =
+      data?.payload?.FinancialEvents?.ShipmentEventList ?? [];
+    let totalFees = 0;
+    let found = false;
+    for (const s of shipments) {
+      for (const item of s.ShipmentItemList ?? []) {
+        for (const fee of item.ItemFeeList ?? []) {
+          if (
+            fee.FeeType === "Commission" ||
+            fee.FeeType === "AmazonForAllFee"
+          ) {
+            totalFees += Math.abs(fee.FeeAmount?.CurrencyAmount ?? 0);
+            found = true;
+          }
+        }
+      }
+    }
+    if (found) {
+      comRows.push({
+        amazon_order_id: o.amazon_order_id,
+        comissao_estimada: o.comissao_estimada,
+        comissao_real: Math.round(totalFees * 100) / 100,
+        confirmado: true,
+        fonte: "finances",
+      });
+    }
+    await sleep(2000);
+  }
+
+  if (comRows.length > 0) {
+    await rpc<number>("az_upsert_comissao", { p_rows: comRows });
+  }
+
+  return {
+    confirmados: comRows.length,
+    pendentes: orders.length - comRows.length,
+  };
+}
+
 // ---- busca pedidos por intervalo ----
 async function fetchOrders(
   token: string,
@@ -223,12 +359,27 @@ Deno.serve(async (req) => {
       upserted = await rpc<number>("az_upsert_pedidos", { p_rows: rows });
     }
 
+    let comissao_estimadas = 0;
+    if (rows.length > 0) {
+      const comRows = await estimateCommission(token, rows);
+      if (comRows.length > 0) {
+        await rpc<number>("az_upsert_comissao", { p_rows: comRows });
+        comissao_estimadas = comRows.length;
+      }
+    }
+
     return json({
       dia,
       pedidos: upserted,
       valor: Math.round(sumBruta(rows) * 100) / 100,
       status_counts: countStatuses(rows),
+      comissao_estimadas,
     });
+  }
+
+  if (modo === "confirmar") {
+    const result = await confirmCommissions(token);
+    return json(result);
   }
 
   if (modo === "backfill") {
