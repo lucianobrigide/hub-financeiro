@@ -262,12 +262,15 @@ export const supabaseProvider: DataProvider = {
           const cmvNota = azCmv.itens_total > 0
             ? `${azCmv.itens_com_custo} de ${azCmv.itens_total} com custo`
             : undefined;
-          const deducoesAz = DEDUCAO_LABELS.map((label) => {
-            if (label === "Comissão") return { label, valor: azCom.comissao_total || null, nota: comNota };
-            if (label === "Frete") return { label, valor: azFrete.frete_total || null, nota: freteNota };
-            if (label === "CMV") return { label, valor: azCmvVal, nota: cmvNota };
-            return { label, valor: null };
-          });
+          const deducoesAz = DEDUCAO_LABELS
+            .filter((l) => l !== "Afiliados")
+            .map((label) => {
+              if (label === "Comissão") return { label, valor: azCom.comissao_total || null, nota: comNota };
+              if (label === "Frete") return { label, valor: azFrete.frete_total || null, nota: freteNota };
+              if (label === "CMV") return { label, valor: azCmvVal, nota: cmvNota };
+              if (label === "ADS" || label === "Full") return { label, valor: 0 };
+              return { label, valor: null };
+            });
           const totalDeducoesAz = deducoesAz.reduce((s, d) => s + (d.valor ?? 0), 0);
           const azMc = azLiquido != null
             ? Math.round((azLiquido - totalDeducoesAz) * 100) / 100

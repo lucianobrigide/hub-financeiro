@@ -437,6 +437,13 @@ Deno.serve(async (req) => {
         await rpc<number>("az_upsert_itens", { p_rows: itemRows });
         itens_gravados = itemRows.length;
       }
+      const qtyByOrder = new Map<string, number>();
+      for (const item of itemRows) {
+        qtyByOrder.set(
+          item.amazon_order_id,
+          (qtyByOrder.get(item.amazon_order_id) ?? 0) + (item.quantidade ?? 1),
+        );
+      }
       const freteRows = rows
         .filter(
           (r) =>
@@ -445,7 +452,9 @@ Deno.serve(async (req) => {
         )
         .map((r) => ({
           amazon_order_id: r.amazon_order_id,
-          frete_estimado: 27.95,
+          frete_estimado:
+            Math.round(27.95 * (qtyByOrder.get(r.amazon_order_id) ?? 1) * 100) /
+            100,
           confirmado: false,
           fonte: "estimate",
         }));
