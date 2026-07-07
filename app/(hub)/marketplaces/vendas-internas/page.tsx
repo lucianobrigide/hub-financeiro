@@ -1,7 +1,24 @@
 "use client";
 
-import { Placeholder } from "@/components/Placeholder";
+import { useDashboard } from "@/components/DashboardProvider";
+import { PlataformaDreCard } from "@/components/PlataformaDreCard";
+import { COLORS } from "@/components/ui";
 
 export default function VendasInternasPage() {
-  return <Placeholder title="Vendas Internas" />;
+  const { data } = useDashboard();
+  const dre = data.plataformasDre.find((p) => p.nome === "Vendas Internas");
+
+  if (!dre) {
+    return (
+      <p className="text-sm" style={{ color: COLORS.muted }}>
+        Sem dados para Vendas Internas neste mês.
+      </p>
+    );
+  }
+
+  return (
+    <div className="max-w-xl">
+      <PlataformaDreCard p={dre} />
+    </div>
+  );
 }

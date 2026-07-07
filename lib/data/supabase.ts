@@ -144,6 +144,19 @@ interface CmvAz {
   itens_total: number;
 }
 
+/** Retorno do RPC b2b_faturamento (bruta B2B do mês, NFs por data_emissao). */
+interface FatB2b {
+  faturamento_bruto: number;
+  total_notas: number;
+}
+
+/** Retorno do RPC b2b_cmv (CMV B2B via ml_custo_produto). */
+interface CmvB2b {
+  cmv_total: number;
+  itens_com_custo: number;
+  itens_total: number;
+}
+
 export const supabaseProvider: DataProvider = {
   async listAvailableMonths(): Promise<Month[]> {
     // Só os meses que EXISTEM nas tabelas (hoje: junho/2026).
@@ -185,6 +198,10 @@ export const supabaseProvider: DataProvider = {
     const azFrete = await rpc<FreteAz>("az_frete_mes", { p_month: mes });
     // Amazon — CMV (custo × quantidade dos itens vendidos, via ml_custo_produto).
     const azCmv = await rpc<CmvAz>("az_cmv", { p_month: mes });
+    // B2B / Vendas Internas — bruta (NFs por data_emissao, valor sem IPI).
+    const b2bFat = await rpc<FatB2b>("b2b_faturamento", { p_month: mes });
+    // B2B — CMV (cruza b2b_itens × ml_custo_produto).
+    const b2bCmv = await rpc<CmvB2b>("b2b_cmv", { p_month: mes });
 
     // Deduções do card ML + M.C. Afiliados = 0 por ora (sem fonte automática, imaterial).
     // M.C. = Faturamento Líquido − Σ deduções (todas as 6 com valor → margem fecha).
@@ -230,7 +247,7 @@ export const supabaseProvider: DataProvider = {
         { nome: "Shopee", valor: null },              // sem integração
         { nome: "Tik Tok", valor: null },             // sem integração
         { nome: "Amazon", valor: azFat.faturamento_bruto || null },
-        { nome: "Vendas Internas", valor: null },     // sem integração
+        { nome: "Vendas Internas", valor: b2bFat.faturamento_bruto || null },
       ],
       // Card ML: topo REAL + as 6 deduções (Comissão/Frete/ADS/Full/CMV reais; Afiliados=0)
       // e a M.C. calculada (Líquido − Σ deduções). Demais plataformas: tudo null (sem
@@ -284,7 +301,26 @@ export const supabaseProvider: DataProvider = {
             mc: azMc,
           };
         })(),
-        dreVazio("Vendas Internas"),
+        (() => {
+          const viBruto = b2bFat.faturamento_bruto || null;
+          const viLiquido = viBruto;
+          const viCmvVal = b2bCmv.itens_total > 0 ? b2bCmv.cmv_total : null;
+          const cmvNota = b2bCmv.itens_total > 0
+            ? `${b2bCmv.itens_com_custo} de ${b2bCmv.itens_total} com custo`
+            : undefined;
+          const deducoesVi = [{ label: "CMV", valor: viCmvVal, nota: cmvNota }];
+          const viMc = viLiquido != null
+            ? Math.round((viLiquido - (viCmvVal ?? 0)) * 100) / 100
+            : null;
+          return {
+            ...dreVazio("Vendas Internas"),
+            faturamentoBruto: viBruto,
+            cancelDevolucoes: 0,
+            faturamentoLiquido: viLiquido,
+            deducoes: deducoesVi,
+            mc: viMc,
+          };
+        })(),
       ],
       vendasDiarias: a.vendasDiarias ?? [],           // REAL (série diária da bruta)
     };
