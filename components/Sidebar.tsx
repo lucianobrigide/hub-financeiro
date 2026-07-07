@@ -22,7 +22,7 @@ const NAV_ITEMS: NavItem[] = [
       { label: "Shopee", href: "/marketplaces/shopee" },
       { label: "TikTok", href: "/marketplaces/tiktok" },
       { label: "Amazon", href: "/marketplaces/amazon" },
-      { label: "Vendas Internas", href: "/marketplaces/vendas-internas" },
+      { label: "B2B", href: "/marketplaces/vendas-internas" },
     ],
   },
 ];

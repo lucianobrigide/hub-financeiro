@@ -3,7 +3,7 @@ import type { DashboardData, DataProvider, Month, PlataformaDre } from "./types"
 /** Labels das 6 deduções do mini-DRE, na ordem do card. */
 const DEDUCAO_LABELS = ["Comissão", "Frete", "ADS", "Full", "Afiliados", "CMV"];
 /** Plataformas do card, na ordem exibida. */
-const PLATAFORMAS_DRE = ["Mercado Livre", "Shopee", "TikTok Shop", "Amazon", "Vendas Internas"];
+const PLATAFORMAS_DRE = ["Mercado Livre", "Shopee", "TikTok Shop", "Amazon", "B2B"];
 
 /** DRE mock (tudo 0) — mantém o card idêntico ao que já mostrava. */
 function mockDre(nome: string): PlataformaDre {
@@ -63,7 +63,7 @@ const BASE: DashboardData = {
     { nome: "Shopee", valor: 1074496.25 },
     { nome: "Tik Tok", valor: 796985.74 },
     { nome: "Amazon", valor: 2191.1 },
-    { nome: "Vendas Internas", valor: 1219.5 },
+    { nome: "B2B", valor: 1219.5 },
   ],
   plataformasDre: PLATAFORMAS_DRE.map(mockDre),
   vendasDiarias: [

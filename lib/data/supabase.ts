@@ -198,7 +198,7 @@ export const supabaseProvider: DataProvider = {
     const azFrete = await rpc<FreteAz>("az_frete_mes", { p_month: mes });
     // Amazon — CMV (custo × quantidade dos itens vendidos, via ml_custo_produto).
     const azCmv = await rpc<CmvAz>("az_cmv", { p_month: mes });
-    // B2B / Vendas Internas — bruta (NFs por data_emissao, valor sem IPI).
+    // B2B — bruta (NFs por data_emissao, valor_total com IPI).
     const b2bFat = await rpc<FatB2b>("b2b_faturamento", { p_month: mes });
     // B2B — CMV (cruza b2b_itens × ml_custo_produto).
     const b2bCmv = await rpc<CmvB2b>("b2b_cmv", { p_month: mes });
@@ -247,7 +247,7 @@ export const supabaseProvider: DataProvider = {
         { nome: "Shopee", valor: null },              // sem integração
         { nome: "Tik Tok", valor: null },             // sem integração
         { nome: "Amazon", valor: azFat.faturamento_bruto || null },
-        { nome: "Vendas Internas", valor: b2bFat.faturamento_bruto || null },
+        { nome: "B2B", valor: b2bFat.faturamento_bruto || null },
       ],
       // Card ML: topo REAL + as 6 deduções (Comissão/Frete/ADS/Full/CMV reais; Afiliados=0)
       // e a M.C. calculada (Líquido − Σ deduções). Demais plataformas: tudo null (sem
@@ -313,7 +313,7 @@ export const supabaseProvider: DataProvider = {
             ? Math.round((viLiquido - (viCmvVal ?? 0)) * 100) / 100
             : null;
           return {
-            ...dreVazio("Vendas Internas"),
+            ...dreVazio("B2B"),
             faturamentoBruto: viBruto,
             cancelDevolucoes: 0,
             faturamentoLiquido: viLiquido,
@@ -344,14 +344,14 @@ function vazio(): DashboardData {
       { nome: "Shopee", valor: null },
       { nome: "Tik Tok", valor: null },
       { nome: "Amazon", valor: null },
-      { nome: "Vendas Internas", valor: null },
+      { nome: "B2B", valor: null },
     ],
     plataformasDre: [
       dreVazio("Mercado Livre"),
       dreVazio("Shopee"),
       dreVazio("TikTok Shop"),
       dreVazio("Amazon"),
-      dreVazio("Vendas Internas"),
+      dreVazio("B2B"),
     ],
     vendasDiarias: [],
   };

@@ -6,12 +6,12 @@ import { COLORS } from "@/components/ui";
 
 export default function VendasInternasPage() {
   const { data } = useDashboard();
-  const dre = data.plataformasDre.find((p) => p.nome === "Vendas Internas");
+  const dre = data.plataformasDre.find((p) => p.nome === "B2B");
 
   if (!dre) {
     return (
       <p className="text-sm" style={{ color: COLORS.muted }}>
-        Sem dados para Vendas Internas neste mês.
+        Sem dados para B2B neste mês.
       </p>
     );
   }

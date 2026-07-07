@@ -1,6 +1,6 @@
 -- B2B / Vendas Internas: notas fiscais do TINY filtradas por natureza de operação.
 -- Fonte de dados: API v3 TINY GET /notas/{id}. Competência por data de emissão.
--- Bruta = valorProdutos (sem IPI). CMV cruza b2b_itens × ml_custo_produto.
+-- Bruta = valor_total (com IPI). CMV cruza b2b_itens × ml_custo_produto.
 -- Nenhum segredo neste arquivo.
 
 CREATE TABLE IF NOT EXISTS public.b2b_notas (
@@ -44,12 +44,12 @@ INSERT INTO public.b2b_itens (id, nota_id, sku, descricao, quantidade, valor_uni
   (749648074, 403144529, 'ESSENZA10BIANCO', 'Jogo De Panelas 10 Peças Bianco Antiaderente Essenza Di Chef - Bianco', 400, 107.98, 43192.00, '5102', 'Venda de Mercadorias Importadas para Contribuinte -B2B')
 ON CONFLICT (id) DO NOTHING;
 
--- Faturamento bruto B2B (competência por data_emissao, valor_produtos = sem IPI)
+-- Faturamento bruto B2B (competência por data_emissao, valor_total = com IPI)
 CREATE OR REPLACE FUNCTION public.b2b_faturamento(p_month text)
 RETURNS jsonb LANGUAGE sql SECURITY DEFINER SET search_path TO 'public'
 AS $$
   SELECT jsonb_build_object(
-    'faturamento_bruto', coalesce(sum(valor_produtos), 0),
+    'faturamento_bruto', coalesce(sum(valor_total), 0),
     'total_notas', count(*)
   )
   FROM b2b_notas
