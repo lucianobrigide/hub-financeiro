@@ -372,7 +372,10 @@ async function ingestAfiliados(token: string, ctx: Ctx) {
   let grav = 0;
   for (const KEY of keys) {
     let fromId = 0, page = 0;
-    while (page < 40) {
+    // from_id é EXCLUSIVO (páginas somam exato, sem overlap). NÃO parar em página curta:
+    // o billing API sob carga devolve páginas <1000 no meio da paginação (trunca o fetch).
+    // Para só em página VAZIA (última) ou lastId sem avançar. page<60 é backstop.
+    while (page < 60) {
       if (overBudget(ctx)) break;
       const j = await mlGet(token, `/billing/integration/periods/key/${KEY}/group/ML/details?document_type=BILL&detail_sub_types=CVAF&limit=1000&from_id=${fromId}&sort_by=ID&order_by=ASC`);
       if (j.__err) throw new Error(`afiliados HTTP ${j.__err} (key ${KEY})`);
@@ -382,7 +385,7 @@ async function ingestAfiliados(token: string, ctx: Ctx) {
       for (let i = 0; i < rows.length; i += 200) await rpc("ml_upsert_afiliados", { p_rows: rows.slice(i, i + 200) });
       grav += rows.length;
       const lastId = results[results.length - 1]?.charge_info?.detail_id ?? null;
-      if (results.length < 1000 || !lastId || lastId === fromId) break;
+      if (!lastId || lastId === fromId) break;
       fromId = lastId; page++;
     }
   }
