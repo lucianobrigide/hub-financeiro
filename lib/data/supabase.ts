@@ -171,6 +171,13 @@ interface CmvSp {
   itens_total: number;
 }
 
+/** Retorno do RPC sp_afiliados (AMS Shopee do mês, campo separado no escrow). */
+interface AfiliSp {
+  afiliados_total: number;
+  pedidos_com_ams: number;
+  pedidos_total: number;
+}
+
 /** Retorno do RPC b2b_faturamento (bruta B2B do mês, NFs por data_emissao). */
 interface FatB2b {
   faturamento_bruto: number;
@@ -233,6 +240,8 @@ export const supabaseProvider: DataProvider = {
     const spFrete = await rpc<FreteSp>("sp_frete", { p_month: mes });
     // Shopee — CMV (custo × qty, unaccent no JOIN com ml_custo_produto).
     const spCmv = await rpc<CmvSp>("sp_cmv", { p_month: mes });
+    // Shopee — afiliados AMS (order_ams_commission_fee do escrow, separado da comissão).
+    const spAfil = await rpc<AfiliSp>("sp_afiliados", { p_month: mes });
     // B2B — bruta (NFs por data_emissao, valor_total com IPI).
     const b2bFat = await rpc<FatB2b>("b2b_faturamento", { p_month: mes });
     // B2B — CMV (cruza b2b_itens × ml_custo_produto).
@@ -309,13 +318,17 @@ export const supabaseProvider: DataProvider = {
           const cmvNota = spCmv.itens_total > 0
             ? `${spCmv.itens_com_custo} de ${spCmv.itens_total} com custo`
             : undefined;
+          const afilNota = spAfil.pedidos_total > 0
+            ? `${spAfil.pedidos_com_ams} de ${spAfil.pedidos_total} com afiliado`
+            : undefined;
           const deducoesSp = DEDUCAO_LABELS
-            .filter((l) => l !== "Afiliados")
             .map((label) => {
               if (label === "Comissão") return { label, valor: spCom.comissao_total || null, nota: comNota };
               if (label === "Frete") return { label, valor: spFrete.frete_total || null, nota: freteNota };
+              if (label === "Afiliados") return { label, valor: spAfil.afiliados_total || null, nota: afilNota };
               if (label === "CMV") return { label, valor: spCmvVal, nota: cmvNota };
-              if (label === "ADS" || label === "Full") return { label, valor: 0 };
+              if (label === "ADS") return { label, valor: null, nota: "pendente — escopo Ads a solicitar" };
+              if (label === "Full") return { label, valor: 0 };
               return { label, valor: null };
             });
           const totalDeducoesSp = deducoesSp.reduce((s, d) => s + (d.valor ?? 0), 0);
