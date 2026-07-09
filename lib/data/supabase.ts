@@ -144,6 +144,33 @@ interface CmvAz {
   itens_total: number;
 }
 
+/** Retorno do RPC sp_faturamento (bruta Shopee do mês, régua COMPLETED). */
+interface FatSp {
+  faturamento_bruto: number;
+  total_pedidos: number;
+}
+
+/** Retorno do RPC sp_comissao (comissão + taxa de serviço Shopee). */
+interface ComissaoSp {
+  comissao_total: number;
+  pedidos_com_escrow: number;
+  pedidos_total: number;
+}
+
+/** Retorno do RPC sp_frete (frete Shopee do mês). */
+interface FreteSp {
+  frete_total: number;
+  pedidos_com_frete: number;
+  pedidos_total: number;
+}
+
+/** Retorno do RPC sp_cmv (CMV Shopee via ml_custo_produto + unaccent). */
+interface CmvSp {
+  cmv_total: number;
+  itens_com_custo: number;
+  itens_total: number;
+}
+
 /** Retorno do RPC b2b_faturamento (bruta B2B do mês, NFs por data_emissao). */
 interface FatB2b {
   faturamento_bruto: number;
@@ -198,6 +225,14 @@ export const supabaseProvider: DataProvider = {
     const azFrete = await rpc<FreteAz>("az_frete_mes", { p_month: mes });
     // Amazon — CMV (custo × quantidade dos itens vendidos, via ml_custo_produto).
     const azCmv = await rpc<CmvAz>("az_cmv", { p_month: mes });
+    // Shopee — bruta (régua COMPLETED, competência create_time BRT).
+    const spFat = await rpc<FatSp>("sp_faturamento", { p_month: mes });
+    // Shopee — comissão + taxa de serviço (do escrow).
+    const spCom = await rpc<ComissaoSp>("sp_comissao", { p_month: mes });
+    // Shopee — frete (actual_shipping_fee do escrow).
+    const spFrete = await rpc<FreteSp>("sp_frete", { p_month: mes });
+    // Shopee — CMV (custo × qty, unaccent no JOIN com ml_custo_produto).
+    const spCmv = await rpc<CmvSp>("sp_cmv", { p_month: mes });
     // B2B — bruta (NFs por data_emissao, valor_total com IPI).
     const b2bFat = await rpc<FatB2b>("b2b_faturamento", { p_month: mes });
     // B2B — CMV (cruza b2b_itens × ml_custo_produto).
@@ -244,7 +279,7 @@ export const supabaseProvider: DataProvider = {
       ],
       plataformas: [
         { nome: "Mercado Livre", valor: totalVenda }, // REAL (toda a base é ML)
-        { nome: "Shopee", valor: null },              // sem integração
+        { nome: "Shopee", valor: spFat.faturamento_bruto || null },
         { nome: "Tik Tok", valor: null },             // sem integração
         { nome: "Amazon", valor: azFat.faturamento_bruto || null },
         { nome: "B2B", valor: b2bFat.faturamento_bruto || null },
@@ -261,7 +296,41 @@ export const supabaseProvider: DataProvider = {
           deducoes: deducoesMl,
           mc: mcMl,
         },
-        dreVazio("Shopee"),
+        (() => {
+          const spBruto = spFat.faturamento_bruto || null;
+          const spLiquido = spBruto;
+          const comNota = spCom.pedidos_total > 0
+            ? `${spCom.pedidos_com_escrow} de ${spCom.pedidos_total} com escrow`
+            : undefined;
+          const freteNota = spFrete.pedidos_total > 0
+            ? `${spFrete.pedidos_com_frete} de ${spFrete.pedidos_total} com frete`
+            : undefined;
+          const spCmvVal = spCmv.itens_total > 0 ? spCmv.cmv_total : null;
+          const cmvNota = spCmv.itens_total > 0
+            ? `${spCmv.itens_com_custo} de ${spCmv.itens_total} com custo`
+            : undefined;
+          const deducoesSp = DEDUCAO_LABELS
+            .filter((l) => l !== "Afiliados")
+            .map((label) => {
+              if (label === "Comissão") return { label, valor: spCom.comissao_total || null, nota: comNota };
+              if (label === "Frete") return { label, valor: spFrete.frete_total || null, nota: freteNota };
+              if (label === "CMV") return { label, valor: spCmvVal, nota: cmvNota };
+              if (label === "ADS" || label === "Full") return { label, valor: 0 };
+              return { label, valor: null };
+            });
+          const totalDeducoesSp = deducoesSp.reduce((s, d) => s + (d.valor ?? 0), 0);
+          const spMc = spLiquido != null
+            ? Math.round((spLiquido - totalDeducoesSp) * 100) / 100
+            : null;
+          return {
+            ...dreVazio("Shopee"),
+            faturamentoBruto: spBruto,
+            cancelDevolucoes: 0,
+            faturamentoLiquido: spLiquido,
+            deducoes: deducoesSp,
+            mc: spMc,
+          };
+        })(),
         dreVazio("TikTok Shop"),
         (() => {
           const azBruto = azFat.faturamento_bruto || null;
