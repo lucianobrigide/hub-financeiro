@@ -103,6 +103,11 @@ interface FullMl {
   full_total_mes: number;
 }
 
+/** Retorno do RPC sp_afiliados_ml (custo do programa de afiliados CVAF, régua creation_date). */
+interface AfiliadosMl {
+  afiliados_total_mes: number;
+}
+
 /** Retorno do RPC ml_cmv (custo da mercadoria vendida no mês, régua paid+partial). */
 interface CmvMl {
   cmv_total_mes: number;
@@ -220,6 +225,10 @@ export const supabaseProvider: DataProvider = {
     const frete = await rpc<FreteMl>("ml_frete", { p_month: mes });
     // Full (armazenamento/coleta/penalidade de Fulfillment) — REAL. Dedução com dado.
     const full = await rpc<FullMl>("ml_full", { p_month: mes });
+    // Afiliados (CVAF do billing) — REAL. Régua creation_date (regime de quando o ML
+    // cobra), NÃO data da venda: os R$ do mês são de vendas antigas cobradas com atraso
+    // (batch). Bate com a fatura do ML, descasa da competência das vendas — igual Full.
+    const afil = await rpc<AfiliadosMl>("sp_afiliados_ml", { p_month: mes });
     // CMV (custo da mercadoria vendida) — REAL. Maior dedução; fecha a M.C.
     const cmv = await rpc<CmvMl>("ml_cmv", { p_month: mes });
     // Amazon — bruta (régua Shipped+Unshipped, competência PurchaseDate).
@@ -247,7 +256,7 @@ export const supabaseProvider: DataProvider = {
     // B2B — CMV (cruza b2b_itens × ml_custo_produto).
     const b2bCmv = await rpc<CmvB2b>("b2b_cmv", { p_month: mes });
 
-    // Deduções do card ML + M.C. Afiliados = 0 por ora (sem fonte automática, imaterial).
+    // Deduções do card ML + M.C. — todas as 6 com fonte automática (Afiliados = CVAF do billing).
     // M.C. = Faturamento Líquido − Σ deduções (todas as 6 com valor → margem fecha).
     const deducoesMl = DEDUCAO_LABELS.map((label) => {
       if (label === "Comissão") return { label, valor: com.comissao_total_mes };
@@ -255,7 +264,7 @@ export const supabaseProvider: DataProvider = {
       if (label === "ADS") return { label, valor: ads.ads_total_mes };
       if (label === "Full") return { label, valor: full.full_total_mes };
       if (label === "CMV") return { label, valor: cmv.cmv_total_mes };
-      if (label === "Afiliados") return { label, valor: 0 };
+      if (label === "Afiliados") return { label, valor: afil.afiliados_total_mes };
       return { label, valor: null };
     });
     const totalDeducoesMl = deducoesMl.reduce((s, d) => s + (d.valor ?? 0), 0);
