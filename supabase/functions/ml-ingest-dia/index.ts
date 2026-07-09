@@ -13,6 +13,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 //   ads        — gasto de ADS (product_ads + brand_ads) de UM dia fechado
 //   full       — billing Fulfillment (ciclo atual + anterior)
 //   afiliados  — billing CVAF (afiliados, ciclo atual + anterior; régua creation_date)
+//   difal      — billing CDIFAL (ICMS-DIFAL interestadual, ciclo atual + anterior; régua creation_date)
 //   frete      — /shipments/costs dos envios pendentes da janela trailing, em 1 chunk (cursor)
 //   ambos      — fechar + reconferir (compat)
 
@@ -392,6 +393,46 @@ async function ingestAfiliados(token: string, ctx: Ctx) {
   return { keys, gravados: grav };
 }
 
+// ================= DIFAL (CDIFAL — ciclo atual + anterior) =================
+// "Cobrança do diferencial de alíquota interestadual (ICMS-DIFAL)" do billing
+// /group/ML/details filtrado por CDIFAL. Imposto de venda interestadual, cobrado na
+// fatura do ML (marketplace=SHIPPING). Régua creation_date (dia da cobrança). DIFAL é
+// DIÁRIO (per-envio), ciclo ~fecha dia 22 → mês-calendário vem de 2 faturas: pesca
+// mesKey(0)+mesKey(-1) (igual Full/Afiliado). Idempotente por detail_id. Mesma paginação
+// robusta do afiliado (para só em página vazia; billing devolve <1000 no meio).
+function mapDifal(r: any, KEY: string) {
+  const ci = r.charge_info ?? {}, si = (r.sales_info ?? [])[0] ?? {}, di = r.document_info ?? {}, mi = r.marketplace_info ?? {};
+  const cdt = ci.creation_date_time ?? null;
+  return {
+    detail_id: ci.detail_id, creation_date: cdt ? cdt.slice(0, 10) : null, creation_date_time: cdt,
+    detail_sub_type: ci.detail_sub_type ?? null, detail_amount: ci.detail_amount ?? null,
+    transaction_detail: ci.transaction_detail ?? null,
+    order_id: si.order_id ?? null, sale_date_time: si.sale_date_time ?? null, marketplace: mi.marketplace ?? null,
+    legal_document_number: ci.legal_document_number ?? null, document_id: di.document_id ?? null, periodo_key: KEY,
+  };
+}
+async function ingestDifal(token: string, ctx: Ctx) {
+  const keys = [mesKey(0), mesKey(-1)];
+  let grav = 0;
+  for (const KEY of keys) {
+    let fromId = 0, page = 0;
+    while (page < 60) {
+      if (overBudget(ctx)) break;
+      const j = await mlGet(token, `/billing/integration/periods/key/${KEY}/group/ML/details?document_type=BILL&detail_sub_types=CDIFAL&limit=1000&from_id=${fromId}&sort_by=ID&order_by=ASC`);
+      if (j.__err) throw new Error(`difal HTTP ${j.__err} (key ${KEY})`);
+      const results = j.results ?? [];
+      if (!results.length) break;
+      const rows = results.map((r: any) => mapDifal(r, KEY));
+      for (let i = 0; i < rows.length; i += 200) await rpc("ml_upsert_difal", { p_rows: rows.slice(i, i + 200) });
+      grav += rows.length;
+      const lastId = results[results.length - 1]?.charge_info?.detail_id ?? null;
+      if (!lastId || lastId === fromId) break;
+      fromId = lastId; page++;
+    }
+  }
+  return { keys, gravados: grav };
+}
+
 // ================= FRETE (chunk de envios pendentes da janela trailing) =================
 function costType(cv: any, cc: any) {
   const a = Number(cv) || 0, b = Number(cc) || 0;
@@ -440,6 +481,7 @@ Deno.serve(async (req) => {
     if (modo === "ads") out.ads = await ingestAds(dia, token);
     if (modo === "full") out.full = await ingestFull(token, ctx);
     if (modo === "afiliados") out.afiliados = await ingestAfiliados(token, ctx);
+    if (modo === "difal") out.difal = await ingestDifal(token, ctx);
     if (modo === "frete") out.frete = await ingestFreteChunk(janela, limite, token, sellerId, ctx);
     out.elapsedMs = Date.now() - ctx.t0;
     return json(out);

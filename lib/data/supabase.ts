@@ -4,6 +4,8 @@ import type { DashboardData, DataProvider, Month, PlataformaDre, VendaDiaria } f
 
 /** Labels das 6 deduções do mini-DRE, na ordem do card. */
 const DEDUCAO_LABELS = ["Comissão", "Frete", "ADS", "Full", "Afiliados", "CMV"];
+/** ML tem 7ª dedução: DIFAL (ICMS-DIFAL do billing), antes do CMV. ML-only. */
+const DEDUCAO_LABELS_ML = ["Comissão", "Frete", "ADS", "Full", "Afiliados", "DIFAL", "CMV"];
 
 /** DRE de uma plataforma sem dado (tudo null) — UI mostra "sem dados". */
 function dreVazio(nome: string): PlataformaDre {
@@ -106,6 +108,11 @@ interface FullMl {
 /** Retorno do RPC sp_afiliados_ml (custo do programa de afiliados CVAF, régua creation_date). */
 interface AfiliadosMl {
   afiliados_total_mes: number;
+}
+
+/** Retorno do RPC sp_difal_ml (ICMS-DIFAL interestadual CDIFAL, régua creation_date). */
+interface DifalMl {
+  difal_total_mes: number;
 }
 
 /** Retorno do RPC ml_cmv (custo da mercadoria vendida no mês, régua paid+partial). */
@@ -229,6 +236,10 @@ export const supabaseProvider: DataProvider = {
     // cobra), NÃO data da venda: os R$ do mês são de vendas antigas cobradas com atraso
     // (batch). Bate com a fatura do ML, descasa da competência das vendas — igual Full.
     const afil = await rpc<AfiliadosMl>("sp_afiliados_ml", { p_month: mes });
+    // DIFAL (ICMS-DIFAL interestadual, CDIFAL do billing) — REAL. 7ª dedução, ML-only.
+    // Régua creation_date (dia da cobrança), mês-calendário, 2 faturas. Imposto tratado
+    // como dedução da M.C. (carga tributária completa fica pro módulo Impostos futuro).
+    const difal = await rpc<DifalMl>("sp_difal_ml", { p_month: mes });
     // CMV (custo da mercadoria vendida) — REAL. Maior dedução; fecha a M.C.
     const cmv = await rpc<CmvMl>("ml_cmv", { p_month: mes });
     // Amazon — bruta (régua Shipped+Unshipped, competência PurchaseDate).
@@ -256,15 +267,16 @@ export const supabaseProvider: DataProvider = {
     // B2B — CMV (cruza b2b_itens × ml_custo_produto).
     const b2bCmv = await rpc<CmvB2b>("b2b_cmv", { p_month: mes });
 
-    // Deduções do card ML + M.C. — todas as 6 com fonte automática (Afiliados = CVAF do billing).
-    // M.C. = Faturamento Líquido − Σ deduções (todas as 6 com valor → margem fecha).
-    const deducoesMl = DEDUCAO_LABELS.map((label) => {
+    // Deduções do card ML + M.C. — as 7 com fonte automática (Afiliados=CVAF, DIFAL=CDIFAL do billing).
+    // M.C. = Faturamento Líquido − Σ deduções (todas com valor → margem fecha).
+    const deducoesMl = DEDUCAO_LABELS_ML.map((label) => {
       if (label === "Comissão") return { label, valor: com.comissao_total_mes };
       if (label === "Frete") return { label, valor: frete.frete_total_mes };
       if (label === "ADS") return { label, valor: ads.ads_total_mes };
       if (label === "Full") return { label, valor: full.full_total_mes };
       if (label === "CMV") return { label, valor: cmv.cmv_total_mes };
       if (label === "Afiliados") return { label, valor: afil.afiliados_total_mes };
+      if (label === "DIFAL") return { label, valor: difal.difal_total_mes };
       return { label, valor: null };
     });
     const totalDeducoesMl = deducoesMl.reduce((s, d) => s + (d.valor ?? 0), 0);
