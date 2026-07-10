@@ -6,6 +6,8 @@ import type { DashboardData, DataProvider, Month, PlataformaDre, VendaDiaria } f
 const DEDUCAO_LABELS = ["Comissão", "Frete", "ADS", "Full", "Afiliados", "CMV"];
 /** ML tem 7ª dedução: DIFAL (ICMS-DIFAL do billing), antes do CMV. ML-only. */
 const DEDUCAO_LABELS_ML = ["Comissão", "Frete", "ADS", "Full", "Afiliados", "DIFAL", "CMV"];
+/** TikTok: "Taxas" é linha própria (sfp_service_fee + fee_per_item); sem "Full". */
+const DEDUCAO_LABELS_TT = ["Comissão", "Taxas", "Frete", "ADS", "Afiliados", "CMV"];
 
 /** DRE de uma plataforma sem dado (tudo null) — UI mostra "sem dados". */
 function dreVazio(nome: string): PlataformaDre {
@@ -203,6 +205,33 @@ interface CmvB2b {
   itens_total: number;
 }
 
+/** Retorno do RPC tt_faturamento. Bruta = gross antes da devolução; líquido = revenue_amount
+ *  (base da M.C.); devoluções = refund líquido explícito (refund_subtotal + seller_discount_refund). */
+interface FatTt {
+  faturamento_bruto: number;
+  devolucoes: number;
+  faturamento_liquido: number;
+  total_pedidos: number;
+  settlement: number;
+}
+
+/** Retorno do RPC tt_deducoes (finance by-order: comissão/taxas/frete/ads/afiliados; taxas é residual). */
+interface DedTt {
+  comissao: number;
+  taxas: number;
+  frete: number;
+  ads: number;
+  afiliados: number;
+  pedidos: number;
+}
+
+/** Retorno do RPC tt_cmv (CMV TikTok via ml_custo_produto + unaccent no seller_sku). */
+interface CmvTt {
+  cmv_total: number;
+  itens_com_custo: number;
+  itens_total: number;
+}
+
 export const supabaseProvider: DataProvider = {
   async listAvailableMonths(): Promise<Month[]> {
     // Só os meses que EXISTEM nas tabelas (hoje: junho/2026).
@@ -266,6 +295,12 @@ export const supabaseProvider: DataProvider = {
     const b2bFat = await rpc<FatB2b>("b2b_faturamento", { p_month: mes });
     // B2B — CMV (cruza b2b_itens × ml_custo_produto).
     const b2bCmv = await rpc<CmvB2b>("b2b_cmv", { p_month: mes });
+    // TikTok — bruta (Σ revenue_amount by-order, competência create_time BRT, régua não-cancelado+liquidado).
+    const ttFat = await rpc<FatTt>("tt_faturamento", { p_month: mes });
+    // TikTok — deduções finance by-order (comissão/taxas/frete/ads/afiliados; taxas residual, reconcilia no fee_and_tax).
+    const ttDed = await rpc<DedTt>("tt_deducoes", { p_month: mes });
+    // TikTok — CMV (seller_sku × ml_custo_produto, unaccent).
+    const ttCmv = await rpc<CmvTt>("tt_cmv", { p_month: mes });
 
     // Deduções do card ML + M.C. — as 7 com fonte automática (Afiliados=CVAF, DIFAL=CDIFAL do billing).
     // M.C. = Faturamento Líquido − Σ deduções (todas com valor → margem fecha).
@@ -310,7 +345,7 @@ export const supabaseProvider: DataProvider = {
       plataformas: [
         { nome: "Mercado Livre", valor: totalVenda }, // REAL (toda a base é ML)
         { nome: "Shopee", valor: spFat.faturamento_bruto || null },
-        { nome: "Tik Tok", valor: null },             // sem integração
+        { nome: "Tik Tok", valor: ttFat.faturamento_bruto || null },
         { nome: "Amazon", valor: azFat.faturamento_bruto || null },
         { nome: "B2B", valor: b2bFat.faturamento_bruto || null },
       ],
@@ -365,7 +400,40 @@ export const supabaseProvider: DataProvider = {
             mc: spMc,
           };
         })(),
-        dreVazio("TikTok Shop"),
+        (() => {
+          const ttBruto = ttFat.faturamento_bruto || null;
+          // Bruta = gross antes da devolução; líquido = revenue_amount (base da M.C., NÃO muda com a
+          // devolução explícita). Cancel/Devoluções = refund líquido (7 pedidos em jun/2026).
+          const ttLiquido = ttFat.faturamento_liquido || null;
+          const ttCmvVal = ttCmv.itens_total > 0 ? ttCmv.cmv_total : null;
+          const cmvNota = ttCmv.itens_total > 0
+            ? `${ttCmv.itens_com_custo} de ${ttCmv.itens_total} com custo`
+            : undefined;
+          const covNota = ttFat.total_pedidos > 0
+            ? `${ttDed.pedidos} de ${ttFat.total_pedidos} liquidados`
+            : undefined;
+          const deducoesTt = DEDUCAO_LABELS_TT.map((label) => {
+            if (label === "Comissão") return { label, valor: ttDed.comissao || null, nota: covNota };
+            if (label === "Taxas") return { label, valor: ttDed.taxas || null };
+            if (label === "Frete") return { label, valor: ttDed.frete || null };
+            if (label === "ADS") return { label, valor: ttDed.ads ?? 0 };
+            if (label === "Afiliados") return { label, valor: ttDed.afiliados ?? 0 };
+            if (label === "CMV") return { label, valor: ttCmvVal, nota: cmvNota };
+            return { label, valor: null };
+          });
+          const totalDeducoesTt = deducoesTt.reduce((s, d) => s + (d.valor ?? 0), 0);
+          const ttMc = ttLiquido != null
+            ? Math.round((ttLiquido - totalDeducoesTt) * 100) / 100
+            : null;
+          return {
+            ...dreVazio("TikTok Shop"),
+            faturamentoBruto: ttBruto,
+            cancelDevolucoes: ttBruto != null ? ttFat.devolucoes : null,
+            faturamentoLiquido: ttLiquido,
+            deducoes: deducoesTt,
+            mc: ttMc,
+          };
+        })(),
         (() => {
           const azBruto = azFat.faturamento_bruto || null;
           const azRefund = azBruto != null ? azDed.refund : null;
