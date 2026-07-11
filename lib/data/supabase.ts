@@ -4,8 +4,8 @@ import type { DashboardData, DataProvider, Month, PlataformaDre, VendaDiaria } f
 
 /** Labels das 6 deduções do mini-DRE, na ordem do card. */
 const DEDUCAO_LABELS = ["Comissão", "Frete", "ADS", "Full", "Afiliados", "CMV"];
-/** ML tem 7ª dedução: DIFAL (ICMS-DIFAL do billing), antes do CMV. ML-only. */
-const DEDUCAO_LABELS_ML = ["Comissão", "Frete", "ADS", "Full", "Afiliados", "DIFAL", "CMV"];
+/** ML e Shopee cobram DIFAL (ICMS interestadual) — 7ª linha, antes do CMV. */
+const DEDUCAO_LABELS_DIFAL = ["Comissão", "Frete", "ADS", "Full", "Afiliados", "DIFAL", "CMV"];
 /** TikTok: "Taxas" é linha própria (sfp_service_fee + fee_per_item); sem "Full". */
 const DEDUCAO_LABELS_TT = ["Comissão", "Taxas", "Frete", "ADS", "Afiliados", "CMV"];
 
@@ -197,6 +197,11 @@ interface AdsSp {
   ads_total_mes: number;
 }
 
+/** Retorno do RPC shopee_difal (ICMS-DIFAL da carteira, ADJUSTMENT_CENTER_DEDUCT). */
+interface DifalSp {
+  difal_total_mes: number;
+}
+
 /** Retorno do RPC b2b_faturamento (bruta B2B do mês, NFs por data_emissao). */
 interface FatB2b {
   faturamento_bruto: number;
@@ -299,6 +304,9 @@ export const supabaseProvider: DataProvider = {
     // Shopee — ADS (gasto CPC diário, get_all_cpc_ads_daily_performance). Escopo Ads já
     // no token (a nota "pendente escopo" estava errada). Separado do escrow, sem overlap.
     const spAds = await rpc<AdsSp>("shopee_ads", { p_month: mes });
+    // Shopee — DIFAL (ICMS interestadual da carteira, ADJUSTMENT_CENTER_DEDUCT). Cobrança
+    // por pedido (ICMS UF destino) + esporádica (fiscalização). Régua creation_date, ML-like.
+    const spDifal = await rpc<DifalSp>("shopee_difal", { p_month: mes });
     // B2B — bruta (NFs por data_emissao, valor_total com IPI).
     const b2bFat = await rpc<FatB2b>("b2b_faturamento", { p_month: mes });
     // B2B — CMV (cruza b2b_itens × ml_custo_produto).
@@ -312,7 +320,7 @@ export const supabaseProvider: DataProvider = {
 
     // Deduções do card ML + M.C. — as 7 com fonte automática (Afiliados=CVAF, DIFAL=CDIFAL do billing).
     // M.C. = Faturamento Líquido − Σ deduções (todas com valor → margem fecha).
-    const deducoesMl = DEDUCAO_LABELS_ML.map((label) => {
+    const deducoesMl = DEDUCAO_LABELS_DIFAL.map((label) => {
       if (label === "Comissão") return { label, valor: com.comissao_total_mes };
       if (label === "Frete") return { label, valor: frete.frete_total_mes };
       if (label === "ADS") return { label, valor: ads.ads_total_mes };
@@ -385,13 +393,14 @@ export const supabaseProvider: DataProvider = {
           const afilNota = spAfil.pedidos_total > 0
             ? `${spAfil.pedidos_com_ams} de ${spAfil.pedidos_total} com afiliado`
             : undefined;
-          const deducoesSp = DEDUCAO_LABELS
+          const deducoesSp = DEDUCAO_LABELS_DIFAL
             .map((label) => {
               if (label === "Comissão") return { label, valor: spCom.comissao_total || null, nota: comNota };
               if (label === "Frete") return { label, valor: spFrete.frete_total || null, nota: freteNota };
               if (label === "Afiliados") return { label, valor: spAfil.afiliados_total || null, nota: afilNota };
               if (label === "CMV") return { label, valor: spCmvVal, nota: cmvNota };
               if (label === "ADS") return { label, valor: spAds.ads_total_mes || null };
+              if (label === "DIFAL") return { label, valor: spDifal.difal_total_mes || null };
               if (label === "Full") return { label, valor: 0 };
               return { label, valor: null };
             });
