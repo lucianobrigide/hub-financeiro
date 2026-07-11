@@ -192,6 +192,11 @@ interface AfiliSp {
   pedidos_total: number;
 }
 
+/** Retorno do RPC shopee_ads (gasto CPC diário do mês; escopo Ads já no token). */
+interface AdsSp {
+  ads_total_mes: number;
+}
+
 /** Retorno do RPC b2b_faturamento (bruta B2B do mês, NFs por data_emissao). */
 interface FatB2b {
   faturamento_bruto: number;
@@ -291,6 +296,9 @@ export const supabaseProvider: DataProvider = {
     const spCmv = await rpc<CmvSp>("sp_cmv", { p_month: mes });
     // Shopee — afiliados AMS (order_ams_commission_fee do escrow, separado da comissão).
     const spAfil = await rpc<AfiliSp>("sp_afiliados", { p_month: mes });
+    // Shopee — ADS (gasto CPC diário, get_all_cpc_ads_daily_performance). Escopo Ads já
+    // no token (a nota "pendente escopo" estava errada). Separado do escrow, sem overlap.
+    const spAds = await rpc<AdsSp>("shopee_ads", { p_month: mes });
     // B2B — bruta (NFs por data_emissao, valor_total com IPI).
     const b2bFat = await rpc<FatB2b>("b2b_faturamento", { p_month: mes });
     // B2B — CMV (cruza b2b_itens × ml_custo_produto).
@@ -383,7 +391,7 @@ export const supabaseProvider: DataProvider = {
               if (label === "Frete") return { label, valor: spFrete.frete_total || null, nota: freteNota };
               if (label === "Afiliados") return { label, valor: spAfil.afiliados_total || null, nota: afilNota };
               if (label === "CMV") return { label, valor: spCmvVal, nota: cmvNota };
-              if (label === "ADS") return { label, valor: null, nota: "pendente — escopo Ads a solicitar" };
+              if (label === "ADS") return { label, valor: spAds.ads_total_mes || null };
               if (label === "Full") return { label, valor: 0 };
               return { label, valor: null };
             });

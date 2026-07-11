@@ -51,10 +51,13 @@ export function PlataformaDreCard({ p }: { p: PlataformaDre }) {
 
         <div
           className="mt-3 flex items-center justify-between border-t pt-2 text-base font-bold"
-          style={{ borderColor: COLORS.panelBorder, color: COLORS.green }}
+          style={{
+            borderColor: COLORS.panelBorder,
+            color: p.mc != null && p.mc < 0 ? COLORS.red : COLORS.green,
+          }}
         >
           <span>M.C. (Margem de Contribuição)</span>
-          <span>{p.mc == null ? <Na small /> : brl(p.mc)}</span>
+          <span className="shrink-0 whitespace-nowrap pl-2">{p.mc == null ? <Na small /> : brl(p.mc)}</span>
         </div>
       </div>
     </Panel>
