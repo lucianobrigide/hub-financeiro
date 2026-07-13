@@ -202,7 +202,10 @@ async function estimateCommission(
 }
 
 // ---- Confirmar comissão + frete via Finances API (uma chamada por pedido) ----
-async function confirmAll(token: string): Promise<{
+// limit: processa no máximo `limit` pedidos por chamada (Finances API exige sleep 2s/pedido,
+// então N pedidos ~ N×3s; sem limite, backlog grande estoura os 150s do curl e o passo falha).
+// O cron chama em loop até acabar. pendentes = quantos ficaram fora deste batch.
+async function confirmAll(token: string, limit = 40): Promise<{
   confirmados: number;
   frete_confirmados: number;
   pendentes: number;
@@ -227,10 +230,11 @@ async function confirmAll(token: string): Promise<{
   const orders = Array.from(orderMap.values());
   if (orders.length === 0) return { confirmados: 0, frete_confirmados: 0, pendentes: 0 };
 
+  const batch = orders.slice(0, limit);
   const comRows: any[] = [];
   const freteRows: any[] = [];
 
-  for (const o of orders) {
+  for (const o of batch) {
     const data = await spGet(
       token,
       `/finances/v0/orders/${o.amazon_order_id}/financialEvents`,
@@ -302,7 +306,7 @@ async function confirmAll(token: string): Promise<{
   return {
     confirmados: comRows.length,
     frete_confirmados: freteRows.length,
-    pendentes: orders.length - Math.max(comRows.length, freteRows.length),
+    pendentes: orders.length - batch.length,
   };
 }
 
@@ -476,7 +480,7 @@ Deno.serve(async (req) => {
   }
 
   if (modo === "confirmar") {
-    const result = await confirmAll(token);
+    const result = await confirmAll(token, Number(body.limite ?? 40));
     return json(result);
   }
 
