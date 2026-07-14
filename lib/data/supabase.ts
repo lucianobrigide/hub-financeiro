@@ -6,6 +6,7 @@ import type { DashboardData, DataProvider, Month, PlataformaDre, VendaDiaria } f
 const DEDUCAO_LABELS = ["Comissão", "Frete", "ADS", "Full", "Afiliados", "CMV"];
 /** ML e Shopee cobram DIFAL (ICMS interestadual) — 7ª linha, antes do CMV. */
 const DEDUCAO_LABELS_DIFAL = ["Comissão", "Frete", "ADS", "Full", "Afiliados", "DIFAL", "CMV"];
+const DEDUCAO_LABELS_SHOPEE = ["Comissão", "Frete", "ADS", "Full", "Afiliados", "DIFAL", "CMV", "Custo Devoluções"];
 /** TikTok: "Taxas" é linha própria (sfp_service_fee + fee_per_item); sem "Full". */
 const DEDUCAO_LABELS_TT = ["Comissão", "Taxas", "Frete", "ADS", "Afiliados", "CMV"];
 
@@ -164,6 +165,13 @@ interface FatSp {
   total_pedidos: number;
 }
 
+/** Retorno do RPC sp_custo_devolucoes (estorno das devoluções finalizadas Shopee). */
+interface CustoDevSp {
+  custo_total: number;
+  pedidos_devolvidos: number;
+  receita_devolvida: number;
+}
+
 /** Retorno do RPC sp_comissao (comissão + taxa de serviço Shopee). */
 interface ComissaoSp {
   comissao_total: number;
@@ -307,6 +315,9 @@ export const supabaseProvider: DataProvider = {
     // Shopee — DIFAL (ICMS interestadual da carteira, ADJUSTMENT_CENTER_DEDUCT). Cobrança
     // por pedido (ICMS UF destino) + esporádica (fiscalização). Régua creation_date, ML-like.
     const spDifal = await rpc<DifalSp>("shopee_difal", { p_month: mes });
+    // Shopee — custo de devoluções finalizadas (estorno via total_adjustment do escrow; as
+    // taxas retidas já entram em comissão/frete). Régua não-cancelado, ajuste negativo no escrow.
+    const spCustoDev = await rpc<CustoDevSp>("sp_custo_devolucoes", { p_month: mes });
     // B2B — bruta (NFs por data_emissao, valor_total com IPI).
     const b2bFat = await rpc<FatB2b>("b2b_faturamento", { p_month: mes });
     // B2B — CMV (cruza b2b_itens × ml_custo_produto).
@@ -393,7 +404,10 @@ export const supabaseProvider: DataProvider = {
           const afilNota = spAfil.pedidos_total > 0
             ? `${spAfil.pedidos_com_ams} de ${spAfil.pedidos_total} com afiliado`
             : undefined;
-          const deducoesSp = DEDUCAO_LABELS_DIFAL
+          const devNota = spCustoDev.pedidos_devolvidos > 0
+            ? `${spCustoDev.pedidos_devolvidos} devoluções finalizadas`
+            : undefined;
+          const deducoesSp = DEDUCAO_LABELS_SHOPEE
             .map((label) => {
               if (label === "Comissão") return { label, valor: spCom.comissao_total || null, nota: comNota };
               if (label === "Frete") return { label, valor: spFrete.frete_total || null, nota: freteNota };
@@ -401,6 +415,7 @@ export const supabaseProvider: DataProvider = {
               if (label === "CMV") return { label, valor: spCmvVal, nota: cmvNota };
               if (label === "ADS") return { label, valor: spAds.ads_total_mes || null };
               if (label === "DIFAL") return { label, valor: spDifal.difal_total_mes || null };
+              if (label === "Custo Devoluções") return { label, valor: spCustoDev.custo_total || null, nota: devNota };
               if (label === "Full") return { label, valor: 0 };
               return { label, valor: null };
             });
