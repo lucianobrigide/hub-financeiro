@@ -8,14 +8,15 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 // NUNCA imprime token nem service_key.
 //
 // Modos (POST JSON): { modo, dia, janela, reconferirDia, limite, deadlineMs }
-//   fechar     — fecha o dia (bruta+comissão+itens) e grava shipping_id (fase A do frete)
-//   reconferir — reconfere modificados (por dia, via reconferirDia; janela p/ full)
-//   ads        — gasto de ADS (product_ads + brand_ads) de UM dia fechado
-//   full       — billing Fulfillment (ciclo atual + anterior)
-//   afiliados  — billing CVAF (afiliados, ciclo atual + anterior; régua creation_date)
-//   difal      — billing CDIFAL (ICMS-DIFAL interestadual, ciclo atual + anterior; régua creation_date)
-//   frete      — /shipments/costs dos envios pendentes da janela trailing, em 1 chunk (cursor)
-//   ambos      — fechar + reconferir (compat)
+//   fechar      — fecha o dia (bruta+comissão+itens) e grava shipping_id (fase A do frete)
+//   reconferir  — reconfere modificados (por dia, via reconferirDia; janela p/ full)
+//   ads         — gasto de ADS (product_ads + brand_ads) de UM dia fechado
+//   full        — billing Fulfillment (ciclo atual + anterior)
+//   afiliados   — billing CVAF (afiliados, ciclo atual + anterior; régua creation_date)
+//   difal       — billing CDIFAL (ICMS-DIFAL interestadual, ciclo atual + anterior; régua creation_date)
+//   seguidores  — billing CDLIT (Publicidade "Aumentar seguidores", ciclo atual + anterior; régua creation_date; entra na linha ADS)
+//   frete       — /shipments/costs dos envios pendentes da janela trailing, em 1 chunk (cursor)
+//   ambos       — fechar + reconferir (compat)
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -433,6 +434,45 @@ async function ingestDifal(token: string, ctx: Ctx) {
   return { keys, gravados: grav };
 }
 
+// ================= SEGUIDORES (CDLIT — ciclo atual + anterior) =================
+// Cobrança da campanha de Publicidade "Aumentar os seguidores da sua página" do
+// billing /group/ML/details filtrado por CDLIT. Régua creation_date (dia da cobrança),
+// mês-calendário — como afiliados/DIFAL, o mês vem de 2 faturas: pesca mesKey(0)+mesKey(-1).
+// DIFERENTE de afiliados/difal (que guardam cada cobrança por detail_id numa tabela
+// própria), aqui AGREGAMOS por creation_date (dia) e gravamos em ml_ads_diario com
+// produto='seguidores' — assim a linha ADS do card (ml_ads soma product_ads+brand_ads+
+// seguidores) absorve o custo, sem tocar nos outros ADS. Idempotente: recomputa o total
+// diário do billing (2 faturas) e SUBSTITUI via ml_upsert_ads (on conflict data,produto).
+async function ingestSeguidores(token: string, ctx: Ctx) {
+  const keys = [mesKey(0), mesKey(-1)];
+  const porDia = new Map<string, number>();
+  let lidos = 0;
+  for (const KEY of keys) {
+    let fromId = 0, page = 0;
+    while (page < 60) {
+      if (overBudget(ctx)) break;
+      const j = await mlGet(token, `/billing/integration/periods/key/${KEY}/group/ML/details?document_type=BILL&detail_sub_types=CDLIT&limit=1000&from_id=${fromId}&sort_by=ID&order_by=ASC`);
+      if (j.__err) throw new Error(`seguidores HTTP ${j.__err} (key ${KEY})`);
+      const results = j.results ?? [];
+      if (!results.length) break;
+      for (const r of results) {
+        const ci = r.charge_info ?? {};
+        const cdt = ci.creation_date_time ?? null;
+        const dia = cdt ? cdt.slice(0, 10) : null;
+        if (!dia) continue;
+        porDia.set(dia, (porDia.get(dia) ?? 0) + (Number(ci.detail_amount) || 0));
+      }
+      lidos += results.length;
+      const lastId = results[results.length - 1]?.charge_info?.detail_id ?? null;
+      if (!lastId || lastId === fromId) break;
+      fromId = lastId; page++;
+    }
+  }
+  const rows = [...porDia.entries()].map(([data, gasto]) => ({ data, produto: "seguidores", gasto: r2(gasto) }));
+  for (let i = 0; i < rows.length; i += 200) { const c = rows.slice(i, i + 200); if (c.length) await rpc("ml_upsert_ads", { p_rows: c }); }
+  return { keys, lidos, dias: rows.length, total: r2([...porDia.values()].reduce((s, v) => s + v, 0)) };
+}
+
 // ================= FRETE (chunk de envios pendentes da janela trailing) =================
 function costType(cv: any, cc: any) {
   const a = Number(cv) || 0, b = Number(cc) || 0;
@@ -482,6 +522,7 @@ Deno.serve(async (req) => {
     if (modo === "full") out.full = await ingestFull(token, ctx);
     if (modo === "afiliados") out.afiliados = await ingestAfiliados(token, ctx);
     if (modo === "difal") out.difal = await ingestDifal(token, ctx);
+    if (modo === "seguidores") out.seguidores = await ingestSeguidores(token, ctx);
     if (modo === "frete") out.frete = await ingestFreteChunk(janela, limite, token, sellerId, ctx);
     out.elapsedMs = Date.now() - ctx.t0;
     return json(out);
