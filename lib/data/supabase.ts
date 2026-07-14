@@ -6,7 +6,7 @@ import type { DashboardData, DataProvider, Month, PlataformaDre, VendaDiaria } f
 const DEDUCAO_LABELS = ["Comissão", "Frete", "ADS", "Full", "Afiliados", "CMV"];
 /** ML e Shopee cobram DIFAL (ICMS interestadual) — 7ª linha, antes do CMV. */
 const DEDUCAO_LABELS_DIFAL = ["Comissão", "Frete", "ADS", "Full", "Afiliados", "DIFAL", "CMV"];
-const DEDUCAO_LABELS_SHOPEE = ["Comissão", "Frete", "ADS", "Full", "Afiliados", "DIFAL", "CMV", "Custo Devoluções"];
+const DEDUCAO_LABELS_SHOPEE = ["Comissão e Fretes reais cobrados", "ADS", "Full", "Afiliados", "DIFAL", "CMV", "Custo Devoluções"];
 /** TikTok: "Taxas" é linha própria (sfp_service_fee + fee_per_item); sem "Full". */
 const DEDUCAO_LABELS_TT = ["Comissão", "Taxas", "Frete", "ADS", "Afiliados", "CMV"];
 
@@ -172,18 +172,18 @@ interface CustoDevSp {
   receita_devolvida: number;
 }
 
-/** Retorno do RPC sp_comissao (comissão + taxa de serviço Shopee). */
-interface ComissaoSp {
-  comissao_total: number;
-  pedidos_com_escrow: number;
+/**
+ * Retorno do RPC sp_repasse: repasse real (escrow) que caiu na conta. É a base
+ * da linha "Comissão e Fretes reais cobrados" (= bruta − repasse − afiliados):
+ * o escrow já consolida os créditos que a decomposição bruta ignora — subsídio
+ * de frete, reembolso de voucher, ajustes PIX.
+ */
+interface RepasseSp {
+  repasse_total: number;
   pedidos_total: number;
-}
-
-/** Retorno do RPC sp_frete (frete Shopee do mês). */
-interface FreteSp {
-  frete_total: number;
-  pedidos_com_frete: number;
-  pedidos_total: number;
+  pedidos_com_repasse: number;
+  pedidos_zero: number;
+  pedidos_neg: number;
 }
 
 /** Retorno do RPC sp_cmv (CMV Shopee via ml_custo_produto + unaccent). */
@@ -301,10 +301,6 @@ export const supabaseProvider: DataProvider = {
     const azCmv = await rpc<CmvAz>("az_cmv", { p_month: mes });
     // Shopee — bruta (régua COMPLETED, competência create_time BRT).
     const spFat = await rpc<FatSp>("sp_faturamento", { p_month: mes });
-    // Shopee — comissão + taxa de serviço (do escrow).
-    const spCom = await rpc<ComissaoSp>("sp_comissao", { p_month: mes });
-    // Shopee — frete (actual_shipping_fee do escrow).
-    const spFrete = await rpc<FreteSp>("sp_frete", { p_month: mes });
     // Shopee — CMV (custo × qty, unaccent no JOIN com ml_custo_produto).
     const spCmv = await rpc<CmvSp>("sp_cmv", { p_month: mes });
     // Shopee — afiliados AMS (order_ams_commission_fee do escrow, separado da comissão).
@@ -318,6 +314,10 @@ export const supabaseProvider: DataProvider = {
     // Shopee — custo de devoluções finalizadas (estorno via total_adjustment do escrow; as
     // taxas retidas já entram em comissão/frete). Régua não-cancelado, ajuste negativo no escrow.
     const spCustoDev = await rpc<CustoDevSp>("sp_custo_devolucoes", { p_month: mes });
+    // Shopee — repasse real (escrow): o dinheiro que caiu na conta, já líquido dos
+    // créditos que a decomposição bruta não vê (subsídio de frete, reembolso de voucher).
+    // Base da linha "Comissão e Fretes reais cobrados" (= bruta − repasse − afiliados).
+    const spRepasse = await rpc<RepasseSp>("sp_repasse", { p_month: mes });
     // B2B — bruta (NFs por data_emissao, valor_total com IPI).
     const b2bFat = await rpc<FatB2b>("b2b_faturamento", { p_month: mes });
     // B2B — CMV (cruza b2b_itens × ml_custo_produto).
@@ -391,32 +391,24 @@ export const supabaseProvider: DataProvider = {
         (() => {
           const spBruto = spFat.faturamento_bruto || null;
           const spLiquido = spBruto;
-          const comNota = spCom.pedidos_total > 0
-            ? `${spCom.pedidos_com_escrow} de ${spCom.pedidos_total} com escrow`
-            : undefined;
-          const freteNota = spFrete.pedidos_total > 0
-            ? `${spFrete.pedidos_com_frete} de ${spFrete.pedidos_total} com frete`
-            : undefined;
           const spCmvVal = spCmv.itens_total > 0 ? spCmv.cmv_total : null;
-          const cmvNota = spCmv.itens_total > 0
-            ? `${spCmv.itens_com_custo} de ${spCmv.itens_total} com custo`
-            : undefined;
-          const afilNota = spAfil.pedidos_total > 0
-            ? `${spAfil.pedidos_com_ams} de ${spAfil.pedidos_total} com afiliado`
-            : undefined;
-          const devNota = spCustoDev.pedidos_devolvidos > 0
-            ? `${spCustoDev.pedidos_devolvidos} devoluções finalizadas`
-            : undefined;
+          // M.C. FLAT: Líquido − todas as linhas reais = M.C. (a conta fecha na aritmética
+          // visível). "Comissão e Fretes reais cobrados" é o que a Shopee EFETIVAMENTE reteve
+          // (comissão + serviço + frete já com o subsídio de frete creditado), derivado do
+          // repasse real: (bruta − escrow) menos os afiliados (linha própria). Não usa as
+          // taxas BRUTAS — que ignoravam os créditos e deixavam a M.C. ~R$15,5k pessimista.
+          const comFreteReal = spBruto != null && spRepasse.repasse_total != null
+            ? Math.round(((spBruto - spRepasse.repasse_total) - (spAfil.afiliados_total || 0)) * 100) / 100
+            : null;
           const deducoesSp = DEDUCAO_LABELS_SHOPEE
-            .map((label) => {
-              if (label === "Comissão") return { label, valor: spCom.comissao_total || null, nota: comNota };
-              if (label === "Frete") return { label, valor: spFrete.frete_total || null, nota: freteNota };
-              if (label === "Afiliados") return { label, valor: spAfil.afiliados_total || null, nota: afilNota };
-              if (label === "CMV") return { label, valor: spCmvVal, nota: cmvNota };
+            .map((label): { label: string; valor: number | null; nota?: string } => {
+              if (label === "Comissão e Fretes reais cobrados") return { label, valor: comFreteReal };
               if (label === "ADS") return { label, valor: spAds.ads_total_mes || null };
-              if (label === "DIFAL") return { label, valor: spDifal.difal_total_mes || null };
-              if (label === "Custo Devoluções") return { label, valor: spCustoDev.custo_total || null, nota: devNota };
               if (label === "Full") return { label, valor: 0 };
+              if (label === "Afiliados") return { label, valor: spAfil.afiliados_total || null };
+              if (label === "DIFAL") return { label, valor: spDifal.difal_total_mes || null };
+              if (label === "CMV") return { label, valor: spCmvVal };
+              if (label === "Custo Devoluções") return { label, valor: spCustoDev.custo_total || null };
               return { label, valor: null };
             });
           const totalDeducoesSp = deducoesSp.reduce((s, d) => s + (d.valor ?? 0), 0);
