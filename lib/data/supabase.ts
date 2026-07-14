@@ -4,8 +4,11 @@ import type { DashboardData, DataProvider, Month, PlataformaDre, VendaDiaria } f
 
 /** Labels das 6 deduções do mini-DRE, na ordem do card. */
 const DEDUCAO_LABELS = ["Comissão", "Frete", "ADS", "Full", "Afiliados", "CMV"];
-/** ML e Shopee cobram DIFAL (ICMS interestadual) — 7ª linha, antes do CMV. */
-const DEDUCAO_LABELS_DIFAL = ["Comissão", "Frete", "ADS", "Full", "Afiliados", "DIFAL", "CMV"];
+/**
+ * ML: DIFAL (ICMS interestadual) + "Custo Devoluções" (fricção da fatura — análogo à Shopee:
+ * tarifas de devolução/inconformidade menos as bonificações espelho, líquido).
+ */
+const DEDUCAO_LABELS_DIFAL = ["Comissão", "Frete", "ADS", "Full", "Afiliados", "DIFAL", "CMV", "Custo Devoluções"];
 const DEDUCAO_LABELS_SHOPEE = ["Comissão e Fretes reais cobrados", "ADS", "Full", "Afiliados", "DIFAL", "CMV", "Custo Devoluções"];
 /** TikTok: "Taxas" é linha própria (sfp_service_fee + fee_per_item); sem "Full". */
 const DEDUCAO_LABELS_TT = ["Comissão", "Taxas", "Frete", "ADS", "Afiliados", "CMV"];
@@ -93,9 +96,26 @@ interface ComissaoMl {
   comissao_total_mes: number;
 }
 
-/** Retorno do RPC ml_ads (gasto de ADS do mês: product_ads + brand_ads). */
+/**
+ * Retorno do RPC ml_ads. `ads_total_mes` é LÍQUIDO: o gasto vem BRUTO da API de delivery
+ * e o ML bonifica parte na fatura (BPAD) — crédito que a reconstrução ignorava.
+ */
 interface AdsMl {
-  ads_total_mes: number;
+  ads_total_mes: number;   // = ads_bruto − ads_bonificacao
+  ads_bruto: number;
+  ads_bonificacao: number;
+}
+
+/**
+ * Retorno do RPC ml_friccao: custo de devoluções/fricção da fatura ML, LÍQUIDO
+ * (débitos CXDED/CDSDB/CFPB/CXDID − bonificações espelho BXDED/BDSDB/BXDID).
+ * Análogo ao "Custo Devoluções" da Shopee.
+ */
+interface FriccaoMl {
+  friccao_total: number;
+  debitos: number;
+  creditos: number;
+  lancamentos: number;
 }
 
 /** Retorno do RPC ml_frete (custo de envio do vendedor no mês, régua paid+partial). */
@@ -273,8 +293,10 @@ export const supabaseProvider: DataProvider = {
     const fat = await rpc<FatMl>("ml_faturamento_ml", { p_month: mes });
     // Comissão líquida (régua da margem: paid+partial) — REAL. Dedução com dado.
     const com = await rpc<ComissaoMl>("ml_comissao", { p_month: mes });
-    // ADS (product_ads + brand_ads) — REAL. Dedução com dado.
+    // ADS (product_ads + brand_ads + seguidores) — LÍQUIDO da bonificação BPAD da fatura.
     const ads = await rpc<AdsMl>("ml_ads", { p_month: mes });
+    // Custo de devoluções/fricção da fatura ML (líquido dos estornos) — análogo à Shopee.
+    const friccao = await rpc<FriccaoMl>("ml_friccao", { p_month: mes });
     // Frete (custo_vendedor de ml_envios) — REAL. Dedução com dado.
     const frete = await rpc<FreteMl>("ml_frete", { p_month: mes });
     // Full (armazenamento/coleta/penalidade de Fulfillment) — REAL. Dedução com dado.
@@ -339,6 +361,13 @@ export const supabaseProvider: DataProvider = {
       if (label === "CMV") return { label, valor: cmv.cmv_total_mes };
       if (label === "Afiliados") return { label, valor: afil.afiliados_total_mes };
       if (label === "DIFAL") return { label, valor: difal.difal_total_mes };
+      if (label === "Custo Devoluções") {
+        return {
+          label,
+          valor: friccao.friccao_total,
+          nota: friccao.lancamentos > 0 ? `${friccao.lancamentos} lançamentos, líquido` : undefined,
+        };
+      }
       return { label, valor: null };
     });
     const totalDeducoesMl = deducoesMl.reduce((s, d) => s + (d.valor ?? 0), 0);
