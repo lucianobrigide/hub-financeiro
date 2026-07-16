@@ -5,7 +5,12 @@ const ACCESS_CODE = process.env.SITE_ACCESS_CODE ?? "1914";
 const COOKIE = "hub_auth";
 
 export function proxy(req: NextRequest) {
-  const { pathname } = req.nextUrl;
+  const { pathname, hostname } = req.nextUrl;
+
+  // Dev local: sem gate. O token só vale quando estiver online (produção).
+  if (hostname === "localhost" || hostname === "127.0.0.1") {
+    return NextResponse.next();
+  }
 
   // Rotas liberadas: tela de login, endpoint de login e o callback OAuth do ML.
   if (
