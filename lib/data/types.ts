@@ -136,4 +136,44 @@ export interface DataProvider {
    * `month` é opcional para manter compatíveis providers que ignoram o filtro.
    */
   getDashboard(month?: string): Promise<DashboardData>;
+  /**
+   * Estado de saúde de todos os cron jobs que alimentam o dashboard.
+   * OPCIONAL: só o provider Supabase tem crons reais. `null` => sem dado.
+   */
+  getCronsStatus?(): Promise<CronsStatus | null>;
+}
+
+/** Um cron job na página de Crons. */
+export interface CronInfo {
+  jobname: string;
+  plataforma: string;
+  /** 'diario' | 'semanal' | 'token'. */
+  categoria: string;
+  /** Horário em linguagem humana ("Todo dia às 03:00 BRT"). */
+  horario: string;
+  /** O que o cron faz, em linguagem de negócio. */
+  o_que_faz: string;
+  ativo: boolean;
+  /** Confiabilidade do log de aplicação: 'honesto' | 'parcial' | 'suspeito'. */
+  confiab_log: string;
+  /** Semáforo (vem do pg_cron): 'verde' | 'amarelo' | 'vermelho'. */
+  semaforo: string;
+  /** Status do último disparo no pg_cron: 'succeeded' | 'failed' | null. */
+  pg_status: string | null;
+  /** true = a data vem do log de dados (o agendador já não guarda esse run). */
+  via_log?: boolean;
+  /** Última execução ("16/07 03:00") ou null se sem histórico recente. */
+  ultima_exec: string | null;
+  horas_atras: number | null;
+  duracao_seg: number | null;
+}
+
+/** Payload da página de Crons. */
+export interface CronsStatus {
+  gerado_em: string;
+  total: number;
+  verdes: number;
+  amarelos: number;
+  vermelhos: number;
+  crons: CronInfo[];
 }

@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { DashboardData, DataProvider, Month, PlataformaDre, VendaDiaria } from "./types";
+import type { CronsStatus, DashboardData, DataProvider, Month, PlataformaDre, VendaDiaria } from "./types";
 
 /** Labels das 6 deduções do mini-DRE, na ordem do card. */
 const DEDUCAO_LABELS = ["Comissão", "Frete", "ADS", "Full", "Afiliados", "CMV"];
@@ -275,6 +275,12 @@ export const supabaseProvider: DataProvider = {
     // Só os meses que EXISTEM nas tabelas (hoje: junho/2026).
     const months = await rpc<string[]>("ml_dashboard_months");
     return (months ?? []).map((value) => ({ value, label: labelMes(value) }));
+  },
+
+  // Saúde dos crons: o semáforo vem do pg_cron (cron.job_run_details), o detalhe do log
+  // de aplicação. O front nunca toca no schema cron.* — só consome esta RPC.
+  async getCronsStatus(): Promise<CronsStatus | null> {
+    return rpc<CronsStatus>("crons_status");
   },
 
   async getDashboard(month?: string): Promise<DashboardData> {

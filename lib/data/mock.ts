@@ -1,4 +1,4 @@
-import type { DashboardData, DataProvider, Month, PlataformaDre } from "./types";
+import type { CronsStatus, DashboardData, DataProvider, Month, PlataformaDre } from "./types";
 
 /** Labels das 6 deduções do mini-DRE, na ordem do card. */
 const DEDUCAO_LABELS = ["Comissão", "Frete", "ADS", "Full", "Afiliados", "CMV"];
@@ -141,5 +141,9 @@ export const mockProvider: DataProvider = {
   },
   async getDashboard(month?: string): Promise<DashboardData> {
     return dashboardFor(month);
+  },
+  // Mock não tem crons reais — a página mostra "sem dados".
+  async getCronsStatus(): Promise<CronsStatus | null> {
+    return null;
   },
 };

@@ -25,6 +25,7 @@ const NAV_ITEMS: NavItem[] = [
       { label: "B2B", href: "/marketplaces/vendas-internas" },
     ],
   },
+  { label: "Crons", href: "/crons" },
 ];
 
 function NavLink({ href, label, active }: { href: string; label: string; active: boolean }) {
