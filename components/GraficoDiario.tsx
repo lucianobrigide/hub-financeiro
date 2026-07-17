@@ -45,7 +45,7 @@ function TooltipDiario({
 
 export function GraficoDiario({ serie }: { serie: SerieDiariaItem[] }) {
   return (
-    <Panel title="Mercado Livre — Faturamento e M.C. por dia">
+    <Panel title="Faturamento e M.C. por dia — todos os canais">
       {serie.length === 0 ? (
         <div className="py-12 text-center">
           <Na />
@@ -109,8 +109,8 @@ export function GraficoDiario({ serie }: { serie: SerieDiariaItem[] }) {
         </div>
       )}
       <div className="mt-2 text-[10px]" style={{ color: COLORS.muted }}>
-        M.C. diária = contribuição direta do dia (fat − CMV − comissão − frete − ADS) com rateio
-        proporcional dos custos mensais; a soma bate com a M.C. do mês do card ML.
+        Soma de todos os canais. M.C. diária: ML com custos diretos do dia; demais canais rateados
+        ∝ faturamento do dia. Σ(faturamento) ≈ Total da Venda; Σ(M.C.) = MC Total.
       </div>
     </Panel>
   );
