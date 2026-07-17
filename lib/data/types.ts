@@ -16,6 +16,12 @@ export interface Kpis {
   mcTotal: number | null;
 }
 
+/** Metas do mês (planejamento). */
+export interface Meta {
+  /** Meta de Margem de Contribuição do mês (R$). null = sem meta definida. */
+  mcMeta: number | null;
+}
+
 /** Bloco "Provável" — projeções e percentuais de margem. */
 export interface Provavel {
   mediaVendaDiaria: number;
@@ -100,6 +106,7 @@ export interface VendaDiaria {
 /** Tudo que o dashboard precisa para renderizar, em um único payload. */
 export interface DashboardData {
   kpis: Kpis;
+  meta: Meta;
   provavel: Provavel;
   margemGauge: MargemGauge;
   mcMensal: McMensalItem[];

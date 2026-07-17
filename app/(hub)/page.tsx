@@ -16,7 +16,13 @@ import {
 
 export default function OverviewPage() {
   const { data } = useDashboard();
-  const { kpis, provavel, margemGauge, mcMensal, plataformasDre } = data;
+  const { kpis, provavel, plataformasDre, meta } = data;
+
+  const mcMeta = meta.mcMeta;
+  const mc = kpis.mcTotal;
+  const pctMeta = mcMeta != null && mcMeta > 0 && mc != null ? (mc / mcMeta) * 100 : null;
+  const falta = mcMeta != null && mc != null ? Math.round((mcMeta - mc) * 100) / 100 : null;
+  const metaBatida = falta != null && falta <= 0;
 
   return (
     <>
@@ -131,33 +137,43 @@ export default function OverviewPage() {
         </div>
 
         <div className="space-y-6 lg:col-span-5">
-          <Panel title="Margem de Contribuição Provável">
-            <SemiGauge value={margemGauge.valor} max={margemGauge.max} />
-            {mcMensal.length === 0 ? (
-              <div className="mt-4 text-center">
-                <Na />
+          <Panel title="Meta de M.C.">
+            <SemiGauge value={mc} max={mcMeta ?? 220000} />
+            <div className="mt-4 space-y-1.5 text-sm">
+              <div className="flex items-center justify-between">
+                <span style={{ color: COLORS.muted }}>Meta do mês</span>
+                <span className="font-semibold text-white">
+                  {mcMeta == null ? <Na small /> : brl(mcMeta)}
+                </span>
               </div>
-            ) : (
-              <div className="mt-4 grid grid-cols-5 gap-2">
-                {mcMensal.map((m, i) => (
-                  <div
-                    key={i}
-                    className="rounded-md border px-1 py-2 text-center"
-                    style={{ background: COLORS.bg, borderColor: COLORS.panelBorder }}
-                  >
-                    <div className="text-[10px] font-semibold text-white">
-                      {m.valor.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-                    </div>
-                    <div
-                      className="mt-1 text-[10px] font-bold"
-                      style={{ color: m.pct >= 100 ? COLORS.green : COLORS.cyan }}
-                    >
-                      {pct(m.pct)}
-                    </div>
-                  </div>
-                ))}
+              <div className="flex items-center justify-between">
+                <span style={{ color: COLORS.muted }}>Atingido</span>
+                <span
+                  className="font-semibold"
+                  style={{ color: metaBatida ? COLORS.green : COLORS.white }}
+                >
+                  {mc == null ? (
+                    <Na small />
+                  ) : (
+                    `${brl(mc)}${pctMeta == null ? "" : ` · ${pct(pctMeta)}`}`
+                  )}
+                </span>
               </div>
-            )}
+              <div
+                className="flex items-center justify-between border-t pt-1.5"
+                style={{ borderColor: COLORS.panelBorder }}
+              >
+                <span style={{ color: COLORS.muted }}>
+                  {metaBatida ? "Excedente" : "Falta"}
+                </span>
+                <span
+                  className="font-semibold"
+                  style={{ color: metaBatida ? COLORS.green : COLORS.cyan }}
+                >
+                  {falta == null ? <Na small /> : brl(Math.abs(falta))}
+                </span>
+              </div>
+            </div>
           </Panel>
         </div>
       </div>

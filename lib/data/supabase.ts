@@ -40,6 +40,14 @@ function dreVazio(nome: string): PlataformaDre {
 const SUPABASE_URL =
   process.env.SUPABASE_URL ?? "https://klwczmapuupensozxbsr.supabase.co";
 
+// Metas de Margem de Contribuição por mês (R$). Ajustável conforme o planejamento.
+// Meses sem entrada usam META_MC_DEFAULT.
+const META_MC: Record<string, number> = {
+  "2026-06": 220000,
+  "2026-07": 220000,
+};
+const META_MC_DEFAULT = 220000;
+
 const MESES_FULL = [
   "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
@@ -410,6 +418,7 @@ export const supabaseProvider: DataProvider = {
     const result: DashboardData = {
       // REAL (da bruta)
       kpis: { totalVenda, totalPedidos, ticketMedio, mcTotal: null },
+      meta: { mcMeta: META_MC[mes] ?? META_MC_DEFAULT },
       provavel: {
         mediaVendaDiaria,                 // REAL (trivial: bruta/dias com venda)
         faturamentoCorrenteProvavel,      // REAL (projeção: média × dias do mês)
@@ -590,6 +599,7 @@ export const supabaseProvider: DataProvider = {
 function vazio(): DashboardData {
   return {
     kpis: { totalVenda: 0, totalPedidos: 0, ticketMedio: 0, mcTotal: null },
+    meta: { mcMeta: null },
     provavel: {
       mediaVendaDiaria: 0, faturamentoCorrenteProvavel: 0,
       mcIdeal: null, pontoEquilibrio: null, pontoEquilibrioPct: null,
