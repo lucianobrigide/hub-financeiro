@@ -1,0 +1,8 @@
+-- FIX robusto do ml_fill_billing (billing ML falhava desde 14/07):
+-- (1) limit=50 (respostas ~77KB confiáveis; limit=500 estourava timeout da API,
+--     limit=150 dava parse flaky em respostas de 230KB);
+-- (2) retry por PÁGINA (3x) — antes, uma falha na 1ª página matava tudo sem re-tentar;
+-- (3) CURLOPT_TIMEOUT_MS 90s; guard de 200 páginas.
+-- Resultado: junho fecha completo; julho ~96% (11 linhas ainda PROCESSING no ciclo aberto).
+-- NOTA: a definição completa foi aplicada no banco via MCP (migration ml_fill_billing_robusto).
+-- Este arquivo documenta a mudança; o corpo é idêntico ao aplicado.
