@@ -2,7 +2,17 @@
 
 import { useDashboard } from "@/components/DashboardProvider";
 import { DashboardBody } from "@/components/DashboardBody";
+import { DreSkuSection } from "@/components/DreSkuSection";
 import { COLORS } from "@/components/ui";
+
+// Slug da rota → chave curta do canal no RPC dre_sku.
+const CANAL_KEY: Record<string, string> = {
+  "mercado-livre": "ml",
+  shopee: "sp",
+  tiktok: "tt",
+  amazon: "az",
+  "vendas-internas": "b2b",
+};
 
 /** Dashboard completo isolado de um canal (aberto pelo "Ver mais" dos cards). */
 export function CanalDashboard({ id }: { id: string }) {
@@ -35,6 +45,7 @@ export function CanalDashboard({ id }: { id: string }) {
         tituloGrafico={`${canal.nome} — Despesas, M.C. e Faturamento por dia`}
         detalharDespesas
       />
+      {CANAL_KEY[canal.id] && <DreSkuSection canalKey={CANAL_KEY[canal.id]} />}
     </div>
   );
 }

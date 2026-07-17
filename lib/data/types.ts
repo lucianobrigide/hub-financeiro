@@ -110,6 +110,28 @@ export interface SerieDiariaItem {
   outras?: number;
 }
 
+/** Um dia da série de um SKU (faturamento + M.C. de produto). */
+export interface SkuDreDia {
+  data: string;
+  faturamento: number;
+  mc: number;
+}
+
+/** DRE de um SKU no mês (dentro de um canal). */
+export interface SkuDre {
+  sku: string;
+  titulo: string;
+  faturamento: number;
+  cmv: number;
+  comissao: number;
+  /** M.C. de PRODUTO = faturamento − CMV − comissão (antes de frete/ADS/overhead). */
+  mc: number;
+  /** M.C. de produto como % do faturamento. */
+  mcPct: number | null;
+  /** Série diária do SKU (faturamento + M.C. de produto). */
+  serie: SkuDreDia[];
+}
+
 /** Uma linha da sidebar de vendas diárias. */
 export interface VendaDiaria {
   /** Data no formato "dd/MM". */
@@ -182,6 +204,12 @@ export interface DataProvider {
    * OPCIONAL: só o provider Supabase tem crons reais. `null` => sem dado.
    */
   getCronsStatus?(): Promise<CronsStatus | null>;
+  /**
+   * DRE por SKU de um canal no mês (para o "Ver mais" → seção por SKU).
+   * `canal` = chave curta: 'ml' | 'sp' | 'tt' | 'az' | 'b2b'.
+   * OPCIONAL: só o provider Supabase implementa.
+   */
+  getDreSku?(canal: string, month: string): Promise<SkuDre[]>;
 }
 
 /** Um cron job na página de Crons. */

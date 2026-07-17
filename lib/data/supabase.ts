@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { CronsStatus, DashboardData, DataProvider, Month, PlataformaDre, SerieDiariaItem, VendaDiaria } from "./types";
+import type { CronsStatus, DashboardData, DataProvider, Month, PlataformaDre, SerieDiariaItem, SkuDre, VendaDiaria } from "./types";
 
 /** Labels das 6 deduções do mini-DRE, na ordem do card. */
 const DEDUCAO_LABELS = ["Comissão", "Frete", "ADS", "Full", "Afiliados", "CMV"];
@@ -324,6 +324,65 @@ export const supabaseProvider: DataProvider = {
   // de aplicação. O front nunca toca no schema cron.* — só consome esta RPC.
   async getCronsStatus(): Promise<CronsStatus | null> {
     return rpc<CronsStatus>("crons_status");
+  },
+
+  // DRE por SKU de um canal no mês: agrega as linhas (sku×dia) do RPC dre_sku
+  // em totais mensais + série diária por SKU. M.C. = fat − CMV − comissão (produto).
+  async getDreSku(canal: string, month: string): Promise<SkuDre[]> {
+    const rows =
+      (await rpc<Array<{ sku: string; titulo: string; data: string; fat: number; cmv: number; comissao: number }>>(
+        "dre_sku",
+        { p_canal: canal, p_month: month },
+      )) ?? [];
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+    const ordDia = (dm: string) => Number(dm.split("/")[0]);
+    const map = new Map<
+      string,
+      {
+        titulo: string;
+        fat: number;
+        cmv: number;
+        comissao: number;
+        dias: Map<string, { fat: number; cmv: number; comissao: number; ord: number }>;
+      }
+    >();
+    for (const r of rows) {
+      const cur =
+        map.get(r.sku) ?? { titulo: r.titulo ?? r.sku, fat: 0, cmv: 0, comissao: 0, dias: new Map() };
+      cur.fat += r.fat;
+      cur.cmv += r.cmv;
+      cur.comissao += r.comissao;
+      if (r.titulo && (!cur.titulo || cur.titulo === r.sku)) cur.titulo = r.titulo;
+      const d = cur.dias.get(r.data) ?? { fat: 0, cmv: 0, comissao: 0, ord: ordDia(r.data) };
+      d.fat += r.fat;
+      d.cmv += r.cmv;
+      d.comissao += r.comissao;
+      cur.dias.set(r.data, d);
+      map.set(r.sku, cur);
+    }
+    const out: SkuDre[] = [];
+    for (const [sku, v] of map) {
+      const mc = round2(v.fat - v.cmv - v.comissao);
+      const serie = Array.from(v.dias.entries())
+        .sort((a, b) => a[1].ord - b[1].ord)
+        .map(([data, dd]) => ({
+          data,
+          faturamento: round2(dd.fat),
+          mc: round2(dd.fat - dd.cmv - dd.comissao),
+        }));
+      out.push({
+        sku,
+        titulo: v.titulo ?? sku,
+        faturamento: round2(v.fat),
+        cmv: round2(v.cmv),
+        comissao: round2(v.comissao),
+        mc,
+        mcPct: v.fat > 0 ? Math.round((mc / v.fat) * 10000) / 100 : null,
+        serie,
+      });
+    }
+    out.sort((a, b) => b.faturamento - a.faturamento);
+    return out;
   },
 
   async getDashboard(month?: string): Promise<DashboardData> {
