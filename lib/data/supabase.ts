@@ -400,10 +400,12 @@ export const supabaseProvider: DataProvider = {
       (b2bFat.total_notas ?? 0);         // B2B: NFs emitidas
     const ticketMedio = totalPedidos > 0 ? totalVenda / totalPedidos : 0;
 
-    // Bloco "Provável" e gráfico mensal continuam na base BRUTA do ML (competência diária ML).
-    const mlVendaBruta = a.totalVenda ?? 0;
-    const mediaVendaDiaria = a.diasComVenda > 0 ? mlVendaBruta / a.diasComVenda : 0;
+    // "Provável": MESMA RÉGUA do topo (negócio inteiro, líquido). Os dias vêm do ML
+    // (que vende todo dia) como proxy dos dias ativos do mês.
+    const mediaVendaDiaria = a.diasComVenda > 0 ? totalVenda / a.diasComVenda : 0;
     const faturamentoCorrenteProvavel = mediaVendaDiaria * (a.diasNoMes || 0);
+    // Gráfico mensal e lista "por canal" seguem na base BRUTA do ML.
+    const mlVendaBruta = a.totalVenda ?? 0;
 
     return {
       // REAL (da bruta)
