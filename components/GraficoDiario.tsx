@@ -12,7 +12,7 @@ import {
   Legend,
 } from "recharts";
 import type { SerieDiariaItem } from "@/lib/data/types";
-import { COLORS, Panel, Na, brl } from "./ui";
+import { COLORS, Panel, Na, brl, pct } from "./ui";
 
 const kFmt = (v: number) =>
   "R$ " + (v / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 0 }) + "k";
@@ -27,6 +27,7 @@ function TooltipDiario({
   label?: string;
 }) {
   if (!active || !payload || payload.length === 0) return null;
+  const fat = payload.find((p) => p.name === "Faturamento")?.value ?? 0;
   return (
     <div
       className="rounded-lg border px-3 py-2 text-xs"
@@ -36,7 +37,14 @@ function TooltipDiario({
       {payload.map((p) => (
         <div key={p.name} className="flex items-center justify-between gap-4">
           <span style={{ color: p.color }}>{p.name}</span>
-          <span className="tabular-nums text-white">{brl(p.value)}</span>
+          <span className="tabular-nums text-white">
+            {brl(p.value)}
+            {p.name === "M.C." && fat !== 0 && (
+              <span className="ml-1" style={{ color: COLORS.muted }}>
+                {pct((p.value / fat) * 100)}
+              </span>
+            )}
+          </span>
         </div>
       ))}
     </div>

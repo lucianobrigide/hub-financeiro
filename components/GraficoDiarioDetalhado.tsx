@@ -11,7 +11,7 @@ import {
   Legend,
 } from "recharts";
 import type { SerieDiariaItem } from "@/lib/data/types";
-import { COLORS, Panel, Na, brl } from "./ui";
+import { COLORS, Panel, Na, brl, pct } from "./ui";
 
 // Composição do dia (empilhada): despesas + M.C. somam o faturamento.
 const SEGMENTOS = [
@@ -43,13 +43,20 @@ function TooltipDetalhe({
       style={{ background: COLORS.panel, borderColor: COLORS.panelBorder }}
     >
       <div className="mb-1 flex justify-between gap-6 font-semibold text-white">
-        <span>{label}</span>
+        <span>{label} · Faturamento</span>
         <span className="tabular-nums">{brl(fat)}</span>
       </div>
       {payload.map((p) => (
         <div key={p.name} className="flex items-center justify-between gap-4">
           <span style={{ color: p.color }}>{p.name}</span>
-          <span className="tabular-nums text-white">{brl(p.value)}</span>
+          <span className="tabular-nums text-white">
+            {brl(p.value)}
+            {fat !== 0 && (
+              <span className="ml-1" style={{ color: COLORS.muted }}>
+                {pct((p.value / fat) * 100)}
+              </span>
+            )}
+          </span>
         </div>
       ))}
     </div>
