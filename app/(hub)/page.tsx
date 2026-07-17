@@ -20,6 +20,8 @@ export default function OverviewPage() {
 
   const mcMeta = meta.mcMeta;
   const mc = kpis.mcTotal;
+  // % da M.C. total sobre a venda (líquida, todos os canais) = margem de contribuição %.
+  const mcTotalPct = mc != null && kpis.totalVenda > 0 ? (mc / kpis.totalVenda) * 100 : null;
   const pctMeta = mcMeta != null && mcMeta > 0 && mc != null ? (mc / mcMeta) * 100 : null;
   const falta = mcMeta != null && mc != null ? Math.round((mcMeta - mc) * 100) / 100 : null;
   const metaBatida = falta != null && falta <= 0;
@@ -48,10 +50,19 @@ export default function OverviewPage() {
               className="mt-1 text-2xl font-bold"
               style={{ color: kpis.mcTotal != null && kpis.mcTotal < 0 ? COLORS.red : COLORS.green }}
             >
-              {kpis.mcTotal == null ? <Na /> : brl(kpis.mcTotal)}
+              {kpis.mcTotal == null ? (
+                <Na />
+              ) : (
+                <>
+                  {brl(kpis.mcTotal)}
+                  {mcTotalPct != null && (
+                    <span className="ml-1.5 text-sm font-semibold">{pct(mcTotalPct)}</span>
+                  )}
+                </>
+              )}
             </div>
             <div className="mt-0.5 text-[10px]" style={{ color: COLORS.muted }}>
-              Soma das M.C. · todos os canais
+              Soma das M.C. · % da venda líquida
             </div>
           </Panel>
         </div>
