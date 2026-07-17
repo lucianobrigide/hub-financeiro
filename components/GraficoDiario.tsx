@@ -109,8 +109,8 @@ export function GraficoDiario({ serie }: { serie: SerieDiariaItem[] }) {
         </div>
       )}
       <div className="mt-2 text-[10px]" style={{ color: COLORS.muted }}>
-        Soma de todos os canais. M.C. diária: ML com custos diretos do dia; demais canais rateados
-        ∝ faturamento do dia. Σ(faturamento) ≈ Total da Venda; Σ(M.C.) = MC Total.
+        Soma de todos os canais, com custos REAIS de cada dia (CMV, comissão, frete, ADS). Só
+        custos de ciclo mensal (DIFAL/devoluções) são rateados. Σ(M.C.) = MC Total.
       </div>
     </Panel>
   );

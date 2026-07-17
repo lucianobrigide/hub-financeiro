@@ -95,11 +95,12 @@ interface DreDiaRow {
   ads: number;
 }
 
-/** Uma linha do RPC vendas_diarias_canais (faturamento diário por canal, exceto ML). */
+/** Uma linha do RPC dre_diario_canais (faturamento + custos diretos/dia por canal, exceto ML). */
 interface CanalDiaRow {
   canal: string; // 'sp' | 'tt' | 'az' | 'b2b'
   data: string; // 'DD/MM'
   fat: number;
+  custos: number; // custos diretos do dia (CMV + taxas/comissão/frete/ADS por-pedido)
 }
 
 interface AggReal {
@@ -346,7 +347,7 @@ export const supabaseProvider: DataProvider = {
     const cmv = await rpc<CmvMl>("ml_cmv", { p_month: mes });
     // Séries diárias p/ o gráfico: ML (com custos diretos) + demais canais (só faturamento).
     const diario = await rpc<DreDiaRow[]>("ml_dre_diario", { p_month: mes });
-    const canais = await rpc<CanalDiaRow[]>("vendas_diarias_canais", { p_month: mes });
+    const canais = await rpc<CanalDiaRow[]>("dre_diario_canais", { p_month: mes });
     // Amazon — bruta (régua Shipped+Unshipped, competência PurchaseDate).
     const azFat = await rpc<FatAz>("az_faturamento", { p_month: mes });
     // Amazon — deduções do settlement (Easy Ship, refund).
@@ -608,37 +609,51 @@ export const supabaseProvider: DataProvider = {
     };
 
     // ── Série diária COMPLETA (todos os canais): Faturamento + M.C. por dia ──
-    // ML: M.C. diária real (custos diretos do dia − rateio dos custos mensais → Σ = M.C. ML).
-    // Demais canais: M.C. mensal do canal rateada ∝ faturamento diário do próprio canal.
-    // Σ(faturamento diário) ≈ Total da Venda; Σ(M.C. diária) = MC Total.
-    const diaMc = new Map<string, { fat: number; mc: number; ord: number }>();
+    // Cada canal: M.C. diária = contribuição direta do dia (fat − custos diretos REAIS)
+    // menos o RATEIO proporcional do resíduo mensal (custos por ciclo: Full/afiliados/DIFAL
+    // no ML; DIFAL/devoluções na Shopee), de modo que Σ(M.C. diária) = M.C. do mês do canal.
+    // TikTok/Amazon/B2B fecham exatos (resíduo ~0); ML e Shopee têm rateio pequeno.
     const ordDia = (dm: string) => Number(dm.split("/")[0]);
-    const mlRows = diario ?? [];
-    const fatMlMes = mlRows.reduce((s, d) => s + d.fat, 0);
-    const mcMlDireta = mlRows.reduce((s, d) => s + (d.fat - d.cmv - d.comissao - d.frete - d.ads), 0);
-    const residualMl = mcMl != null ? mcMlDireta - mcMl : 0;
-    for (const d of mlRows) {
-      const mcDireta = d.fat - d.cmv - d.comissao - d.frete - d.ads;
-      const rateio = fatMlMes > 0 ? residualMl * (d.fat / fatMlMes) : 0;
-      diaMc.set(d.data, { fat: d.fat, mc: mcDireta - rateio, ord: ordDia(d.data) });
-    }
-    const canaisRows = canais ?? [];
-    const fatCanalMes: Record<string, number> = {};
-    for (const r of canaisRows) fatCanalMes[r.canal] = (fatCanalMes[r.canal] ?? 0) + r.fat;
+    const diaMc = new Map<string, { fat: number; mc: number; ord: number }>();
+    const somaSerie = (
+      rows: Array<{ data: string; fat: number; custos: number }>,
+      mcMes: number | null,
+    ) => {
+      const fatMes = rows.reduce((s, r) => s + r.fat, 0);
+      const diretaSoma = rows.reduce((s, r) => s + (r.fat - r.custos), 0);
+      const residual = mcMes != null ? diretaSoma - mcMes : 0;
+      for (const r of rows) {
+        const direta = r.fat - r.custos;
+        const rateio = fatMes > 0 ? residual * (r.fat / fatMes) : 0;
+        const cur = diaMc.get(r.data) ?? { fat: 0, mc: 0, ord: ordDia(r.data) };
+        cur.fat += r.fat;
+        cur.mc += direta - rateio;
+        diaMc.set(r.data, cur);
+      }
+    };
+
+    // Mercado Livre (custos diretos = CMV + comissão + frete + ADS do dia)
+    somaSerie(
+      (diario ?? []).map((d) => ({
+        data: d.data,
+        fat: d.fat,
+        custos: d.cmv + d.comissao + d.frete + d.ads,
+      })),
+      mcMl,
+    );
+    // Demais canais (custos diretos já somados no RPC dre_diario_canais)
     const mcCanal: Record<string, number | null> = {
       sp: result.plataformasDre.find((p) => p.nome === "Shopee")?.mc ?? null,
       tt: result.plataformasDre.find((p) => p.nome === "TikTok Shop")?.mc ?? null,
       az: result.plataformasDre.find((p) => p.nome === "Amazon")?.mc ?? null,
       b2b: result.plataformasDre.find((p) => p.nome === "B2B")?.mc ?? null,
     };
-    for (const r of canaisRows) {
-      const cur = diaMc.get(r.data) ?? { fat: 0, mc: 0, ord: ordDia(r.data) };
-      cur.fat += r.fat;
-      const mMc = mcCanal[r.canal];
-      const base = fatCanalMes[r.canal];
-      if (mMc != null && base > 0) cur.mc += mMc * (r.fat / base);
-      diaMc.set(r.data, cur);
+    const porCanal: Record<string, CanalDiaRow[]> = {};
+    for (const r of canais ?? []) (porCanal[r.canal] ??= []).push(r);
+    for (const canal of Object.keys(porCanal)) {
+      somaSerie(porCanal[canal], mcCanal[canal] ?? null);
     }
+
     result.serieDiaria = Array.from(diaMc.entries())
       .map(([data, v]) => ({
         data,
