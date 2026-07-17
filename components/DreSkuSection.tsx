@@ -5,7 +5,7 @@ import { useDashboard } from "./DashboardProvider";
 import { fetchDreSkuAction } from "@/app/actions";
 import type { SkuDre } from "@/lib/data/types";
 import { GraficoDiarioDetalhado } from "./GraficoDiarioDetalhado";
-import { COLORS, Panel, Na, brl, pct } from "./ui";
+import { COLORS, Panel, Na, MiniKpi, brl, pct } from "./ui";
 
 export function DreSkuSection({ canalKey }: { canalKey: string }) {
   const { month } = useDashboard();
@@ -54,6 +54,7 @@ export function DreSkuSection({ canalKey }: { canalKey: string }) {
                   <th className="py-2 text-right text-[10px] font-semibold uppercase tracking-wider">ADS</th>
                   <th className="py-2 text-right text-[10px] font-semibold uppercase tracking-wider">M.C. produto</th>
                   <th className="py-2 text-right text-[10px] font-semibold uppercase tracking-wider">MC %</th>
+                  <th className="py-2 text-right text-[10px] font-semibold uppercase tracking-wider">ROAS</th>
                 </tr>
               </thead>
               <tbody>
@@ -94,6 +95,23 @@ export function DreSkuSection({ canalKey }: { canalKey: string }) {
                       >
                         {s.mcPct == null ? "—" : pct(s.mcPct)}
                       </td>
+                      <td
+                        className="py-1.5 text-right font-semibold tabular-nums"
+                        style={{
+                          color:
+                            s.ads <= 0
+                              ? COLORS.muted
+                              : s.faturamento / s.ads >= 4
+                                ? COLORS.green
+                                : s.faturamento / s.ads < 2
+                                  ? COLORS.red
+                                  : COLORS.white,
+                        }}
+                      >
+                        {s.ads <= 0
+                          ? "—"
+                          : (s.faturamento / s.ads).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + "×"}
+                      </td>
                     </tr>
                   );
                 })}
@@ -110,10 +128,45 @@ export function DreSkuSection({ canalKey }: { canalKey: string }) {
       </Panel>
 
       {selecionado && (
-        <GraficoDiarioDetalhado
-          serie={selecionado.serie}
-          titulo={`SKU ${selecionado.sku} — ${selecionado.titulo} · composição por dia`}
-        />
+        <>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+            <MiniKpi label="Faturamento" value={brl(selecionado.faturamento)} accent={COLORS.white} />
+            <MiniKpi
+              label="M.C. produto"
+              value={brl(selecionado.mc)}
+              accent={selecionado.mc < 0 ? COLORS.red : COLORS.green}
+            />
+            <MiniKpi
+              label="MC %"
+              value={selecionado.mcPct == null ? "—" : pct(selecionado.mcPct)}
+              accent={selecionado.mc < 0 ? COLORS.red : COLORS.green}
+            />
+            <MiniKpi label="ADS" value={brl(selecionado.ads)} accent={COLORS.cyan} />
+            <MiniKpi
+              label="ROAS (fat ÷ ADS)"
+              value={
+                selecionado.ads <= 0
+                  ? "s/ ADS"
+                  : (selecionado.faturamento / selecionado.ads).toLocaleString("pt-BR", {
+                      maximumFractionDigits: 1,
+                    }) + "×"
+              }
+              accent={
+                selecionado.ads <= 0
+                  ? COLORS.muted
+                  : selecionado.faturamento / selecionado.ads >= 4
+                    ? COLORS.green
+                    : selecionado.faturamento / selecionado.ads < 2
+                      ? COLORS.red
+                      : COLORS.white
+              }
+            />
+          </div>
+          <GraficoDiarioDetalhado
+            serie={selecionado.serie}
+            titulo={`SKU ${selecionado.sku} — ${selecionado.titulo} · composição por dia`}
+          />
+        </>
       )}
     </div>
   );
