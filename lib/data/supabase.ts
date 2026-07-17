@@ -84,6 +84,17 @@ async function rpc<T>(fn: string, args: Record<string, unknown> = {}): Promise<T
   return (await resp.json()) as T;
 }
 
+/** Uma linha do RPC ml_dre_diario (faturamento válido + custos DIRETOS do dia). */
+interface DreDiaRow {
+  data: string;
+  fat: number;
+  pedidos: number;
+  cmv: number;
+  comissao: number;
+  frete: number;
+  ads: number;
+}
+
 interface AggReal {
   totalVenda: number;
   totalPedidos: number;
@@ -326,6 +337,8 @@ export const supabaseProvider: DataProvider = {
     const difal = await rpc<DifalMl>("sp_difal_ml", { p_month: mes });
     // CMV (custo da mercadoria vendida) — REAL. Maior dedução; fecha a M.C.
     const cmv = await rpc<CmvMl>("ml_cmv", { p_month: mes });
+    // Série diária do ML (faturamento válido + custos diretos por dia) p/ o gráfico.
+    const diario = await rpc<DreDiaRow[]>("ml_dre_diario", { p_month: mes });
     // Amazon — bruta (régua Shipped+Unshipped, competência PurchaseDate).
     const azFat = await rpc<FatAz>("az_faturamento", { p_month: mes });
     // Amazon — deduções do settlement (Easy Ship, refund).
@@ -415,6 +428,27 @@ export const supabaseProvider: DataProvider = {
     // Gráfico mensal e lista "por canal" seguem na base BRUTA do ML.
     const mlVendaBruta = a.totalVenda ?? 0;
 
+    // Série diária (ML): Faturamento + M.C. por dia. A M.C. diária = contribuição
+    // direta do dia (fat − CMV − comissão − frete − ADS) menos o RATEIO proporcional
+    // dos custos mensais não-diários (Full, afiliados, DIFAL, devoluções, bonif. ADS),
+    // de modo que Σ(M.C. diária) = M.C. do mês do card ML.
+    const diarioRows = diario ?? [];
+    const fatMesDiario = diarioRows.reduce((s, d) => s + d.fat, 0);
+    const mcDiretaSoma = diarioRows.reduce(
+      (s, d) => s + (d.fat - d.cmv - d.comissao - d.frete - d.ads),
+      0,
+    );
+    const residualMensal = mcMl != null ? mcDiretaSoma - mcMl : 0;
+    const serieDiaria = diarioRows.map((d) => {
+      const mcDireta = d.fat - d.cmv - d.comissao - d.frete - d.ads;
+      const rateio = fatMesDiario > 0 ? residualMensal * (d.fat / fatMesDiario) : 0;
+      return {
+        data: d.data,
+        faturamento: d.fat,
+        mc: Math.round((mcDireta - rateio) * 100) / 100,
+      };
+    });
+
     const result: DashboardData = {
       // REAL (da bruta)
       kpis: { totalVenda, totalPedidos, ticketMedio, mcTotal: null },
@@ -429,7 +463,7 @@ export const supabaseProvider: DataProvider = {
         mcLMedia: null,                   // sem dado (margem)
         mcLUltMes: null,                  // sem dado (margem)
       },
-      margemGauge: { valor: null, max: 214500 },      // sem dado (margem)
+    margemGauge: { valor: null, max: 214500 },      // sem dado (margem)
       mcMensal: [],                                   // sem dado (margem)
       totalMensal: [
         { mes: labelMesCurto(mes), venda: Math.round((mlVendaBruta / 1_000_000) * 100) / 100, mcVenda: null, mcLiquida: null },
@@ -582,6 +616,7 @@ export const supabaseProvider: DataProvider = {
           };
         })(),
       ],
+      serieDiaria,                                    // REAL (ML: fat + M.C. por dia)
       vendasDiarias: a.vendasDiarias ?? [],           // REAL (série diária da bruta)
     };
     // MC Total = soma das M.C. de todos os canais (ignora quem não tem M.C. calculada).
@@ -605,6 +640,7 @@ function vazio(): DashboardData {
       mcIdeal: null, pontoEquilibrio: null, pontoEquilibrioPct: null,
       retLMedio: null, mcLMedia: null, mcLUltMes: null,
     },
+    serieDiaria: [],
     margemGauge: { valor: null, max: 214500 },
     mcMensal: [],
     totalMensal: [],

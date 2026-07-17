@@ -2,6 +2,7 @@
 
 import { useDashboard } from "@/components/DashboardProvider";
 import { PlataformaDreCard } from "@/components/PlataformaDreCard";
+import { GraficoDiario } from "@/components/GraficoDiario";
 import {
   COLORS,
   Panel,
@@ -187,6 +188,11 @@ export default function OverviewPage() {
             </div>
           </Panel>
         </div>
+      </div>
+
+      {/* Gráfico diário — Faturamento e M.C. por dia (ML) */}
+      <div className="mt-6">
+        <GraficoDiario serie={data.serieDiaria} />
       </div>
 
       {/* Platform DRE cards */}

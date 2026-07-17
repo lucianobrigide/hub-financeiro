@@ -95,6 +95,14 @@ export interface PlataformaDre {
   mc: number | null;
 }
 
+/** Um dia da série do gráfico diário (Faturamento + M.C. reconciliada). */
+export interface SerieDiariaItem {
+  /** "DD/MM". */
+  data: string;
+  faturamento: number;
+  mc: number;
+}
+
 /** Uma linha da sidebar de vendas diárias. */
 export interface VendaDiaria {
   /** Data no formato "dd/MM". */
@@ -114,6 +122,8 @@ export interface DashboardData {
   plataformas: Plataforma[];
   /** Mini-DRE por plataforma (card de faturamento → M.C.). */
   plataformasDre: PlataformaDre[];
+  /** Série diária do mês (ML): Faturamento e M.C. por dia. */
+  serieDiaria: SerieDiariaItem[];
   vendasDiarias: VendaDiaria[];
 }
 
