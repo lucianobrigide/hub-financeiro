@@ -33,6 +33,7 @@ const BASE: DashboardData = {
   },
   meta: { mcMeta: 220000 },
   serieDiaria: [],
+  porCanal: [],
   provavel: {
     mediaVendaDiaria: 110754.17,
     faturamentoCorrenteProvavel: 3322624.99,
@@ -118,6 +119,7 @@ function dashboardFor(month?: string): DashboardData {
     },
     meta: { ...BASE.meta },
     serieDiaria: BASE.serieDiaria,
+    porCanal: BASE.porCanal,
     provavel: {
       ...BASE.provavel,
       mediaVendaDiaria: r(BASE.provavel.mediaVendaDiaria),

@@ -1,9 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import type { PlataformaDre } from "@/lib/data/types";
 import { COLORS, Panel, Na, brl, pct } from "./ui";
 
-export function PlataformaDreCard({ p }: { p: PlataformaDre }) {
+export function PlataformaDreCard({ p, href }: { p: PlataformaDre; href?: string }) {
   // Base de TODOS os percentuais = Faturamento Líquido (análise vertical do mini-DRE:
   // deduções% + M.C.% = 100% do líquido).
   const base = p.faturamentoLiquido;
@@ -94,6 +95,16 @@ export function PlataformaDreCard({ p }: { p: PlataformaDre }) {
             )}
           </span>
         </div>
+
+        {href && (
+          <Link
+            href={href}
+            className="mt-3 flex items-center justify-center gap-1 rounded-lg border py-2 text-xs font-semibold transition-colors hover:bg-white/5"
+            style={{ borderColor: COLORS.panelBorder, color: COLORS.cyan }}
+          >
+            Ver mais →
+          </Link>
+        )}
       </div>
     </Panel>
   );

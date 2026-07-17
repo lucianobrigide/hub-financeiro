@@ -43,9 +43,15 @@ function TooltipDiario({
   );
 }
 
-export function GraficoDiario({ serie }: { serie: SerieDiariaItem[] }) {
+export function GraficoDiario({
+  serie,
+  titulo = "Faturamento e M.C. por dia — todos os canais",
+}: {
+  serie: SerieDiariaItem[];
+  titulo?: string;
+}) {
   return (
-    <Panel title="Faturamento e M.C. por dia — todos os canais">
+    <Panel title={titulo}>
       {serie.length === 0 ? (
         <div className="py-12 text-center">
           <Na />
@@ -109,8 +115,8 @@ export function GraficoDiario({ serie }: { serie: SerieDiariaItem[] }) {
         </div>
       )}
       <div className="mt-2 text-[10px]" style={{ color: COLORS.muted }}>
-        Soma de todos os canais, com custos REAIS de cada dia (CMV, comissão, frete, ADS). Só
-        custos de ciclo mensal (DIFAL/devoluções) são rateados. Σ(M.C.) = MC Total.
+        Custos REAIS de cada dia (CMV, comissão, frete, ADS). Só custos de ciclo mensal
+        (DIFAL/devoluções) são rateados; a soma bate com a M.C. do mês.
       </div>
     </Panel>
   );

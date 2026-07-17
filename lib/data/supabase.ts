@@ -48,6 +48,18 @@ const META_MC: Record<string, number> = {
 };
 const META_MC_DEFAULT = 220000;
 
+// Metas de M.C. por CANAL (R$), por slug de rota. Vazio = sem meta por canal ainda.
+const META_MC_CANAL: Record<string, number> = {};
+
+// Metadados dos canais: slug de rota, nome (bate com plataformasDre) e chave da série.
+const CANAIS = [
+  { id: "mercado-livre", nome: "Mercado Livre", key: "ml" },
+  { id: "shopee", nome: "Shopee", key: "sp" },
+  { id: "tiktok", nome: "TikTok Shop", key: "tt" },
+  { id: "amazon", nome: "Amazon", key: "az" },
+  { id: "vendas-internas", nome: "B2B", key: "b2b" },
+] as const;
+
 const MESES_FULL = [
   "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
@@ -605,56 +617,73 @@ export const supabaseProvider: DataProvider = {
         })(),
       ],
       serieDiaria: [],                                // preenchido abaixo (todos os canais)
+      porCanal: [],                                   // preenchido abaixo (dashboard por canal)
       vendasDiarias: a.vendasDiarias ?? [],           // REAL (série diária da bruta)
     };
 
-    // ── Série diária COMPLETA (todos os canais): Faturamento + M.C. por dia ──
+    // ── Séries diárias: Faturamento + M.C. por dia, POR CANAL e no TOTAL ──
     // Cada canal: M.C. diária = contribuição direta do dia (fat − custos diretos REAIS)
     // menos o RATEIO proporcional do resíduo mensal (custos por ciclo: Full/afiliados/DIFAL
     // no ML; DIFAL/devoluções na Shopee), de modo que Σ(M.C. diária) = M.C. do mês do canal.
     // TikTok/Amazon/B2B fecham exatos (resíduo ~0); ML e Shopee têm rateio pequeno.
     const ordDia = (dm: string) => Number(dm.split("/")[0]);
-    const diaMc = new Map<string, { fat: number; mc: number; ord: number }>();
-    const somaSerie = (
+    const reconcilia = (
       rows: Array<{ data: string; fat: number; custos: number }>,
       mcMes: number | null,
-    ) => {
+    ): { data: string; faturamento: number; mc: number }[] => {
       const fatMes = rows.reduce((s, r) => s + r.fat, 0);
       const diretaSoma = rows.reduce((s, r) => s + (r.fat - r.custos), 0);
       const residual = mcMes != null ? diretaSoma - mcMes : 0;
-      for (const r of rows) {
-        const direta = r.fat - r.custos;
-        const rateio = fatMes > 0 ? residual * (r.fat / fatMes) : 0;
-        const cur = diaMc.get(r.data) ?? { fat: 0, mc: 0, ord: ordDia(r.data) };
-        cur.fat += r.fat;
-        cur.mc += direta - rateio;
-        diaMc.set(r.data, cur);
-      }
+      return rows
+        .map((r) => {
+          const direta = r.fat - r.custos;
+          const rateio = fatMes > 0 ? residual * (r.fat / fatMes) : 0;
+          return {
+            data: r.data,
+            faturamento: Math.round(r.fat * 100) / 100,
+            mc: Math.round((direta - rateio) * 100) / 100,
+            ord: ordDia(r.data),
+          };
+        })
+        .sort((a, b) => a.ord - b.ord)
+        .map(({ data, faturamento, mc }) => ({ data, faturamento, mc }));
     };
 
-    // Mercado Livre (custos diretos = CMV + comissão + frete + ADS do dia)
-    somaSerie(
-      (diario ?? []).map((d) => ({
+    // Linhas (fat + custos diretos) por canal.
+    const rowsPorCanal: Record<string, Array<{ data: string; fat: number; custos: number }>> = {
+      ml: (diario ?? []).map((d) => ({
         data: d.data,
         fat: d.fat,
         custos: d.cmv + d.comissao + d.frete + d.ads,
       })),
-      mcMl,
-    );
-    // Demais canais (custos diretos já somados no RPC dre_diario_canais)
-    const mcCanal: Record<string, number | null> = {
-      sp: result.plataformasDre.find((p) => p.nome === "Shopee")?.mc ?? null,
-      tt: result.plataformasDre.find((p) => p.nome === "TikTok Shop")?.mc ?? null,
-      az: result.plataformasDre.find((p) => p.nome === "Amazon")?.mc ?? null,
-      b2b: result.plataformasDre.find((p) => p.nome === "B2B")?.mc ?? null,
     };
-    const porCanal: Record<string, CanalDiaRow[]> = {};
-    for (const r of canais ?? []) (porCanal[r.canal] ??= []).push(r);
-    for (const canal of Object.keys(porCanal)) {
-      somaSerie(porCanal[canal], mcCanal[canal] ?? null);
+    for (const r of canais ?? []) {
+      (rowsPorCanal[r.canal] ??= []).push({ data: r.data, fat: r.fat, custos: r.custos });
+    }
+    const mcDe = (nome: string) => result.plataformasDre.find((p) => p.nome === nome)?.mc ?? null;
+    const mcPorKey: Record<string, number | null> = {
+      ml: mcMl,
+      sp: mcDe("Shopee"),
+      tt: mcDe("TikTok Shop"),
+      az: mcDe("Amazon"),
+      b2b: mcDe("B2B"),
+    };
+    const seriePorKey: Record<string, { data: string; faturamento: number; mc: number }[]> = {};
+    for (const key of Object.keys(rowsPorCanal)) {
+      seriePorKey[key] = reconcilia(rowsPorCanal[key], mcPorKey[key] ?? null);
     }
 
-    result.serieDiaria = Array.from(diaMc.entries())
+    // Série TOTAL = merge das séries por canal, por dia.
+    const diaTot = new Map<string, { fat: number; mc: number; ord: number }>();
+    for (const key of Object.keys(seriePorKey)) {
+      for (const s of seriePorKey[key]) {
+        const cur = diaTot.get(s.data) ?? { fat: 0, mc: 0, ord: ordDia(s.data) };
+        cur.fat += s.faturamento;
+        cur.mc += s.mc;
+        diaTot.set(s.data, cur);
+      }
+    }
+    result.serieDiaria = Array.from(diaTot.entries())
       .map(([data, v]) => ({
         data,
         faturamento: Math.round(v.fat * 100) / 100,
@@ -663,6 +692,46 @@ export const supabaseProvider: DataProvider = {
       }))
       .sort((x, y) => x.ord - y.ord)
       .map(({ data, faturamento, mc }) => ({ data, faturamento, mc }));
+
+    // ── Dashboard isolado por canal (para o "Ver mais") ──
+    const pedidosPorKey: Record<string, number> = {
+      ml: a.totalPedidosValidos ?? 0,
+      sp: spFat.total_pedidos ?? 0,
+      tt: ttFat.total_pedidos ?? 0,
+      az: azFat.total_pedidos ?? 0,
+      b2b: b2bFat.total_notas ?? 0,
+    };
+    result.porCanal = CANAIS.map((cm) => {
+      const dre = result.plataformasDre.find((p) => p.nome === cm.nome);
+      const serie = seriePorKey[cm.key] ?? [];
+      const liquido = dre?.faturamentoLiquido ?? 0;
+      const pedidos = pedidosPorKey[cm.key] ?? 0;
+      const diasComVenda = serie.length;
+      const mediaVendaDiaria = diasComVenda > 0 ? liquido / diasComVenda : 0;
+      return {
+        id: cm.id,
+        nome: cm.nome,
+        kpis: {
+          totalVenda: liquido,
+          totalPedidos: pedidos,
+          ticketMedio: pedidos > 0 ? liquido / pedidos : 0,
+          mcTotal: dre?.mc ?? null,
+        },
+        meta: { mcMeta: META_MC_CANAL[cm.id] ?? null },
+        provavel: {
+          mediaVendaDiaria,
+          faturamentoCorrenteProvavel: mediaVendaDiaria * (a.diasNoMes || 0),
+          mcIdeal: null,
+          pontoEquilibrio: null,
+          pontoEquilibrioPct: null,
+          retLMedio: null,
+          mcLMedia: null,
+          mcLUltMes: null,
+        },
+        serieDiaria: serie,
+        dre: dre ?? dreVazio(cm.nome),
+      };
+    });
     // MC Total = soma das M.C. de todos os canais (ignora quem não tem M.C. calculada).
     const mcs = result.plataformasDre
       .map((p) => p.mc)
@@ -685,6 +754,7 @@ function vazio(): DashboardData {
       retLMedio: null, mcLMedia: null, mcLUltMes: null,
     },
     serieDiaria: [],
+    porCanal: [],
     margemGauge: { valor: null, max: 214500 },
     mcMensal: [],
     totalMensal: [],

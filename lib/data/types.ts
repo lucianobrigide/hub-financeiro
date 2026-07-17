@@ -111,6 +111,19 @@ export interface VendaDiaria {
   pedidos: number;
 }
 
+/** Dashboard isolado de um canal (mesma estrutura do principal, só o canal). */
+export interface CanalDetalhe {
+  /** Slug da rota, ex.: "mercado-livre". */
+  id: string;
+  nome: string;
+  kpis: Kpis;
+  meta: Meta;
+  provavel: Provavel;
+  serieDiaria: SerieDiariaItem[];
+  /** Mini-DRE do canal (mesmo card do principal). */
+  dre: PlataformaDre;
+}
+
 /** Tudo que o dashboard precisa para renderizar, em um único payload. */
 export interface DashboardData {
   kpis: Kpis;
@@ -122,8 +135,10 @@ export interface DashboardData {
   plataformas: Plataforma[];
   /** Mini-DRE por plataforma (card de faturamento → M.C.). */
   plataformasDre: PlataformaDre[];
-  /** Série diária do mês (ML): Faturamento e M.C. por dia. */
+  /** Série diária do mês (todos os canais): Faturamento e M.C. por dia. */
   serieDiaria: SerieDiariaItem[];
+  /** Dashboard isolado de cada canal (para o "Ver mais"). */
+  porCanal: CanalDetalhe[];
   vendasDiarias: VendaDiaria[];
 }
 
