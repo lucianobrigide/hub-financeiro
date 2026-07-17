@@ -29,12 +29,18 @@ export default function OverviewPage() {
           <div className="mt-1 text-2xl font-bold" style={{ color: COLORS.green }}>
             {brl(kpis.totalVenda)}
           </div>
+          <div className="mt-0.5 text-[10px]" style={{ color: COLORS.muted }}>
+            Líquido · todos os canais
+          </div>
         </Panel>
         <Panel>
           <div className="text-xs uppercase tracking-wider" style={{ color: COLORS.muted }}>
             Total de Pedidos
           </div>
           <div className="mt-1 text-2xl font-bold text-white">{num(kpis.totalPedidos)}</div>
+          <div className="mt-0.5 text-[10px]" style={{ color: COLORS.muted }}>
+            Válidos · sem cancelados
+          </div>
         </Panel>
         <Panel>
           <div className="text-xs uppercase tracking-wider" style={{ color: COLORS.muted }}>
@@ -42,6 +48,9 @@ export default function OverviewPage() {
           </div>
           <div className="mt-1 text-2xl font-bold" style={{ color: COLORS.cyan }}>
             {brl(kpis.ticketMedio)}
+          </div>
+          <div className="mt-0.5 text-[10px]" style={{ color: COLORS.muted }}>
+            Venda líquida ÷ pedidos válidos
           </div>
         </Panel>
       </div>

@@ -79,6 +79,7 @@ async function rpc<T>(fn: string, args: Record<string, unknown> = {}): Promise<T
 interface AggReal {
   totalVenda: number;
   totalPedidos: number;
+  totalPedidosValidos: number; // paid + partially_refunded (sem cancelados)
   diasComVenda: number;
   diasNoMes: number;
   vendasDiarias: VendaDiaria[];
@@ -380,10 +381,28 @@ export const supabaseProvider: DataProvider = {
     const mcMl = fat.faturamentoLiquido == null
       ? null
       : Math.round((fat.faturamentoLiquido - totalDeducoesMl) * 100) / 100;
-    const totalVenda = a.totalVenda ?? 0;
-    const totalPedidos = a.totalPedidos ?? 0;
+    // ── TOPO: NEGÓCIO INTEIRO, faturamento LÍQUIDO e pedidos VÁLIDOS (sem cancelados) ──
+    // Cada canal já exclui cancelados pela sua régua; o líquido abate devoluções onde há.
+    const azLiquido = azFat.faturamento_bruto
+      ? Math.round((azFat.faturamento_bruto - (azDed.refund ?? 0)) * 100) / 100
+      : 0;
+    const totalVenda =
+      (fat.faturamentoLiquido ?? 0) +    // Mercado Livre (líquido)
+      (spFat.faturamento_bruto ?? 0) +   // Shopee (líquido = bruto)
+      (ttFat.faturamento_liquido ?? 0) + // TikTok (líquido)
+      azLiquido +                        // Amazon (bruto − refund)
+      (b2bFat.faturamento_bruto ?? 0);   // B2B (líquido = bruto)
+    const totalPedidos =
+      (a.totalPedidosValidos ?? 0) +     // ML: paid + partially_refunded
+      (spFat.total_pedidos ?? 0) +       // Shopee: COMPLETED
+      (ttFat.total_pedidos ?? 0) +       // TikTok: liquidado
+      (azFat.total_pedidos ?? 0) +       // Amazon: Shipped+Unshipped
+      (b2bFat.total_notas ?? 0);         // B2B: NFs emitidas
     const ticketMedio = totalPedidos > 0 ? totalVenda / totalPedidos : 0;
-    const mediaVendaDiaria = a.diasComVenda > 0 ? totalVenda / a.diasComVenda : 0;
+
+    // Bloco "Provável" e gráfico mensal continuam na base BRUTA do ML (competência diária ML).
+    const mlVendaBruta = a.totalVenda ?? 0;
+    const mediaVendaDiaria = a.diasComVenda > 0 ? mlVendaBruta / a.diasComVenda : 0;
     const faturamentoCorrenteProvavel = mediaVendaDiaria * (a.diasNoMes || 0);
 
     return {
@@ -402,10 +421,10 @@ export const supabaseProvider: DataProvider = {
       margemGauge: { valor: null, max: 214500 },      // sem dado (margem)
       mcMensal: [],                                   // sem dado (margem)
       totalMensal: [
-        { mes: labelMesCurto(mes), venda: Math.round((totalVenda / 1_000_000) * 100) / 100, mcVenda: null, mcLiquida: null },
+        { mes: labelMesCurto(mes), venda: Math.round((mlVendaBruta / 1_000_000) * 100) / 100, mcVenda: null, mcLiquida: null },
       ],
       plataformas: [
-        { nome: "Mercado Livre", valor: totalVenda }, // REAL (toda a base é ML)
+        { nome: "Mercado Livre", valor: mlVendaBruta }, // REAL (bruta ML)
         { nome: "Shopee", valor: spFat.faturamento_bruto || null },
         { nome: "Tik Tok", valor: ttFat.faturamento_bruto || null },
         { nome: "Amazon", valor: azFat.faturamento_bruto || null },
