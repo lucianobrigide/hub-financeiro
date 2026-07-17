@@ -1,0 +1,7 @@
+-- dre_sku v2: CREATE OR REPLACE de public.dre_sku(text,text) adicionando FRETE e ADS por SKU/dia.
+--   frete: ML = custo_vendedor do envio rateado ∝ valor do item no pedido (real);
+--          TikTok/Amazon = frete do canal rateado ∝ faturamento; Shopee (no escrow)/B2B = 0.
+--   ads:   ML = real por item (ml_ads_item_diario → SKU via item_id, mode()); demais canais = 0.
+-- MC por SKU (no TS) = fat − CMV − comissão − frete − ADS. Validado jun (ML): fat 4.630.471,11 ·
+-- CMV 3.127.592,56 · comissão 362.840,08 · frete 666.969,66 (≈card) · ADS 209.957,47 (≈product_ads).
+-- NOTA: definição completa aplicada via MCP (migration dre_sku_frete_ads). Substitui o 20260717140001.

@@ -110,13 +110,6 @@ export interface SerieDiariaItem {
   outras?: number;
 }
 
-/** Um dia da série de um SKU (faturamento + M.C. de produto). */
-export interface SkuDreDia {
-  data: string;
-  faturamento: number;
-  mc: number;
-}
-
 /** DRE de um SKU no mês (dentro de um canal). */
 export interface SkuDre {
   sku: string;
@@ -124,12 +117,14 @@ export interface SkuDre {
   faturamento: number;
   cmv: number;
   comissao: number;
-  /** M.C. de PRODUTO = faturamento − CMV − comissão (antes de frete/ADS/overhead). */
+  frete: number;
+  ads: number;
+  /** M.C. de PRODUTO = faturamento − CMV − comissão − frete − ADS (antes do overhead do canal). */
   mc: number;
   /** M.C. de produto como % do faturamento. */
   mcPct: number | null;
-  /** Série diária do SKU (faturamento + M.C. de produto). */
-  serie: SkuDreDia[];
+  /** Série diária do SKU (composição por dia — reusa o gráfico empilhado). */
+  serie: SerieDiariaItem[];
 }
 
 /** Uma linha da sidebar de vendas diárias. */
