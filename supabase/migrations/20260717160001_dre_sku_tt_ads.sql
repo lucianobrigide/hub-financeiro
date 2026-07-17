@@ -1,0 +1,7 @@
+-- dre_sku v3: ADS do TikTok por SKU (alocação por pedido a partir do fin_breakdown:
+-- gmv_max_ad_fee, smart_promotion, tap_shop_ads, affiliate_ads, campaign_period, etc.),
+-- rateado aos itens ∝ valor no pedido. Comissão TT = fee_tax − ads (evita double-count).
+-- OBS: TikTok não teve campanhas em jun/jul (ADS=0), mas o mecanismo está ativo.
+-- ML segue com ADS real por item. Shopee/Amazon ADS por SKU = 0 (precisam de ingestão
+-- item-level própria: Shopee Ads product report / Amazon Ads API).
+-- NOTA: definição completa aplicada via MCP (migration dre_sku_tt_ads).
