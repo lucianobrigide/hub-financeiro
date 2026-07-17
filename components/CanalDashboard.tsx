@@ -32,7 +32,8 @@ export function CanalDashboard({ id }: { id: string }) {
         serieDiaria={canal.serieDiaria}
         cards={[{ dre: canal.dre }]}
         escopo={canal.nome}
-        tituloGrafico={`${canal.nome} — Faturamento e M.C. por dia`}
+        tituloGrafico={`${canal.nome} — Despesas, M.C. e Faturamento por dia`}
+        detalharDespesas
       />
     </div>
   );

@@ -3,6 +3,7 @@
 import type { Kpis, Meta, Provavel, SerieDiariaItem, PlataformaDre } from "@/lib/data/types";
 import { PlataformaDreCard } from "./PlataformaDreCard";
 import { GraficoDiario } from "./GraficoDiario";
+import { GraficoDiarioDetalhado } from "./GraficoDiarioDetalhado";
 import { COLORS, Panel, Na, StatCircle, SemiGauge, MiniKpi, brl, num, pct } from "./ui";
 
 export interface DashboardBodyProps {
@@ -14,6 +15,8 @@ export interface DashboardBodyProps {
   /** Rótulo do escopo, ex.: "todos os canais" ou "Mercado Livre". */
   escopo: string;
   tituloGrafico: string;
+  /** true nas páginas de canal: gráfico de despesas detalhadas (empilhado). */
+  detalharDespesas?: boolean;
 }
 
 export function DashboardBody({
@@ -24,6 +27,7 @@ export function DashboardBody({
   cards,
   escopo,
   tituloGrafico,
+  detalharDespesas = false,
 }: DashboardBodyProps) {
   const mcMeta = meta.mcMeta;
   const mc = kpis.mcTotal;
@@ -195,7 +199,11 @@ export function DashboardBody({
 
       {/* Gráfico diário */}
       <div className="mt-6">
-        <GraficoDiario serie={serieDiaria} titulo={tituloGrafico} />
+        {detalharDespesas ? (
+          <GraficoDiarioDetalhado serie={serieDiaria} titulo={tituloGrafico} />
+        ) : (
+          <GraficoDiario serie={serieDiaria} titulo={tituloGrafico} />
+        )}
       </div>
 
       {/* Cards de DRE por canal */}

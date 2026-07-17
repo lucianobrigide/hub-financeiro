@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { CronsStatus, DashboardData, DataProvider, Month, PlataformaDre, VendaDiaria } from "./types";
+import type { CronsStatus, DashboardData, DataProvider, Month, PlataformaDre, SerieDiariaItem, VendaDiaria } from "./types";
 
 /** Labels das 6 deduções do mini-DRE, na ordem do card. */
 const DEDUCAO_LABELS = ["Comissão", "Frete", "ADS", "Full", "Afiliados", "CMV"];
@@ -112,7 +112,10 @@ interface CanalDiaRow {
   canal: string; // 'sp' | 'tt' | 'az' | 'b2b'
   data: string; // 'DD/MM'
   fat: number;
-  custos: number; // custos diretos do dia (CMV + taxas/comissão/frete/ADS por-pedido)
+  cmv: number;
+  comissao: number;
+  frete: number;
+  ads: number;
 }
 
 interface AggReal {
@@ -627,38 +630,44 @@ export const supabaseProvider: DataProvider = {
     // no ML; DIFAL/devoluções na Shopee), de modo que Σ(M.C. diária) = M.C. do mês do canal.
     // TikTok/Amazon/B2B fecham exatos (resíduo ~0); ML e Shopee têm rateio pequeno.
     const ordDia = (dm: string) => Number(dm.split("/")[0]);
-    const reconcilia = (
-      rows: Array<{ data: string; fat: number; custos: number }>,
-      mcMes: number | null,
-    ): { data: string; faturamento: number; mc: number }[] => {
+    const r2 = (n: number) => Math.round(n * 100) / 100;
+    type DiaComp = { data: string; fat: number; cmv: number; comissao: number; frete: number; ads: number };
+    // M.C. diária = fat − (cmv+comissão+frete+ads REAIS do dia) − "outras" (rateio do resíduo
+    // mensal: afiliados/DIFAL/Full/devoluções), de modo que Σ(M.C.) = M.C. do mês do canal.
+    // Cada item carrega a COMPOSIÇÃO (cmv/comissão/frete/ads/outras) → gráfico de despesas.
+    const reconcilia = (rows: DiaComp[], mcMes: number | null): SerieDiariaItem[] => {
       const fatMes = rows.reduce((s, r) => s + r.fat, 0);
-      const diretaSoma = rows.reduce((s, r) => s + (r.fat - r.custos), 0);
+      const diretaSoma = rows.reduce((s, r) => s + (r.fat - r.cmv - r.comissao - r.frete - r.ads), 0);
       const residual = mcMes != null ? diretaSoma - mcMes : 0;
       return rows
+        .slice()
+        .sort((a, b) => ordDia(a.data) - ordDia(b.data))
         .map((r) => {
-          const direta = r.fat - r.custos;
-          const rateio = fatMes > 0 ? residual * (r.fat / fatMes) : 0;
+          const outras = fatMes > 0 ? residual * (r.fat / fatMes) : 0;
+          const mc = r.fat - r.cmv - r.comissao - r.frete - r.ads - outras;
           return {
             data: r.data,
-            faturamento: Math.round(r.fat * 100) / 100,
-            mc: Math.round((direta - rateio) * 100) / 100,
-            ord: ordDia(r.data),
+            faturamento: r2(r.fat),
+            cmv: r2(r.cmv),
+            comissao: r2(r.comissao),
+            frete: r2(r.frete),
+            ads: r2(r.ads),
+            outras: r2(outras),
+            mc: r2(mc),
           };
-        })
-        .sort((a, b) => a.ord - b.ord)
-        .map(({ data, faturamento, mc }) => ({ data, faturamento, mc }));
+        });
     };
 
-    // Linhas (fat + custos diretos) por canal.
-    const rowsPorCanal: Record<string, Array<{ data: string; fat: number; custos: number }>> = {
+    // Linhas (fat + componentes de custo) por canal.
+    const rowsPorCanal: Record<string, DiaComp[]> = {
       ml: (diario ?? []).map((d) => ({
-        data: d.data,
-        fat: d.fat,
-        custos: d.cmv + d.comissao + d.frete + d.ads,
+        data: d.data, fat: d.fat, cmv: d.cmv, comissao: d.comissao, frete: d.frete, ads: d.ads,
       })),
     };
     for (const r of canais ?? []) {
-      (rowsPorCanal[r.canal] ??= []).push({ data: r.data, fat: r.fat, custos: r.custos });
+      (rowsPorCanal[r.canal] ??= []).push({
+        data: r.data, fat: r.fat, cmv: r.cmv, comissao: r.comissao, frete: r.frete, ads: r.ads,
+      });
     }
     const mcDe = (nome: string) => result.plataformasDre.find((p) => p.nome === nome)?.mc ?? null;
     const mcPorKey: Record<string, number | null> = {
@@ -668,30 +677,40 @@ export const supabaseProvider: DataProvider = {
       az: mcDe("Amazon"),
       b2b: mcDe("B2B"),
     };
-    const seriePorKey: Record<string, { data: string; faturamento: number; mc: number }[]> = {};
+    const seriePorKey: Record<string, SerieDiariaItem[]> = {};
     for (const key of Object.keys(rowsPorCanal)) {
       seriePorKey[key] = reconcilia(rowsPorCanal[key], mcPorKey[key] ?? null);
     }
 
-    // Série TOTAL = merge das séries por canal, por dia.
-    const diaTot = new Map<string, { fat: number; mc: number; ord: number }>();
+    // Série TOTAL = merge das séries por canal, por dia (soma fat, M.C. e composição).
+    const diaTot = new Map<string, {
+      fat: number; mc: number; cmv: number; comissao: number; frete: number; ads: number; outras: number;
+    }>();
     for (const key of Object.keys(seriePorKey)) {
       for (const s of seriePorKey[key]) {
-        const cur = diaTot.get(s.data) ?? { fat: 0, mc: 0, ord: ordDia(s.data) };
+        const cur = diaTot.get(s.data) ?? { fat: 0, mc: 0, cmv: 0, comissao: 0, frete: 0, ads: 0, outras: 0 };
         cur.fat += s.faturamento;
         cur.mc += s.mc;
+        cur.cmv += s.cmv ?? 0;
+        cur.comissao += s.comissao ?? 0;
+        cur.frete += s.frete ?? 0;
+        cur.ads += s.ads ?? 0;
+        cur.outras += s.outras ?? 0;
         diaTot.set(s.data, cur);
       }
     }
     result.serieDiaria = Array.from(diaTot.entries())
+      .sort((x, y) => ordDia(x[0]) - ordDia(y[0]))
       .map(([data, v]) => ({
         data,
-        faturamento: Math.round(v.fat * 100) / 100,
-        mc: Math.round(v.mc * 100) / 100,
-        ord: v.ord,
-      }))
-      .sort((x, y) => x.ord - y.ord)
-      .map(({ data, faturamento, mc }) => ({ data, faturamento, mc }));
+        faturamento: r2(v.fat),
+        mc: r2(v.mc),
+        cmv: r2(v.cmv),
+        comissao: r2(v.comissao),
+        frete: r2(v.frete),
+        ads: r2(v.ads),
+        outras: r2(v.outras),
+      }));
 
     // ── Dashboard isolado por canal (para o "Ver mais") ──
     const pedidosPorKey: Record<string, number> = {

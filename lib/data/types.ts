@@ -101,6 +101,13 @@ export interface SerieDiariaItem {
   data: string;
   faturamento: number;
   mc: number;
+  /** Composição de despesas do dia (presente nas séries POR CANAL). Somam c/ a M.C. = faturamento. */
+  cmv?: number;
+  comissao?: number;
+  frete?: number;
+  ads?: number;
+  /** Custos de ciclo mensal rateados no dia (afiliados/DIFAL/Full/devoluções). */
+  outras?: number;
 }
 
 /** Uma linha da sidebar de vendas diárias. */
