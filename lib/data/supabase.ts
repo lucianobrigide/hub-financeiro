@@ -407,9 +407,9 @@ export const supabaseProvider: DataProvider = {
     // Gráfico mensal e lista "por canal" seguem na base BRUTA do ML.
     const mlVendaBruta = a.totalVenda ?? 0;
 
-    return {
+    const result: DashboardData = {
       // REAL (da bruta)
-      kpis: { totalVenda, totalPedidos, ticketMedio },
+      kpis: { totalVenda, totalPedidos, ticketMedio, mcTotal: null },
       provavel: {
         mediaVendaDiaria,                 // REAL (trivial: bruta/dias com venda)
         faturamentoCorrenteProvavel,      // REAL (projeção: média × dias do mês)
@@ -575,13 +575,21 @@ export const supabaseProvider: DataProvider = {
       ],
       vendasDiarias: a.vendasDiarias ?? [],           // REAL (série diária da bruta)
     };
+    // MC Total = soma das M.C. de todos os canais (ignora quem não tem M.C. calculada).
+    const mcs = result.plataformasDre
+      .map((p) => p.mc)
+      .filter((v): v is number => v != null);
+    result.kpis.mcTotal = mcs.length
+      ? Math.round(mcs.reduce((s, v) => s + v, 0) * 100) / 100
+      : null;
+    return result;
   },
 };
 
 /** Dashboard totalmente vazio (quando não há mês na base) — sem números falsos. */
 function vazio(): DashboardData {
   return {
-    kpis: { totalVenda: 0, totalPedidos: 0, ticketMedio: 0 },
+    kpis: { totalVenda: 0, totalPedidos: 0, ticketMedio: 0, mcTotal: null },
     provavel: {
       mediaVendaDiaria: 0, faturamentoCorrenteProvavel: 0,
       mcIdeal: null, pontoEquilibrio: null, pontoEquilibrioPct: null,

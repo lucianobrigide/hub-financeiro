@@ -21,18 +21,34 @@ export default function OverviewPage() {
   return (
     <>
       {/* KPIs */}
-      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Panel>
-          <div className="text-xs uppercase tracking-wider" style={{ color: COLORS.muted }}>
-            Total da Venda
-          </div>
-          <div className="mt-1 text-2xl font-bold" style={{ color: COLORS.green }}>
-            {brl(kpis.totalVenda)}
-          </div>
-          <div className="mt-0.5 text-[10px]" style={{ color: COLORS.muted }}>
-            Líquido · todos os canais
-          </div>
-        </Panel>
+      <div className="mb-6 grid grid-cols-1 items-start gap-4 sm:grid-cols-3">
+        <div className="flex flex-col gap-4">
+          <Panel>
+            <div className="text-xs uppercase tracking-wider" style={{ color: COLORS.muted }}>
+              Total da Venda
+            </div>
+            <div className="mt-1 text-2xl font-bold" style={{ color: COLORS.green }}>
+              {brl(kpis.totalVenda)}
+            </div>
+            <div className="mt-0.5 text-[10px]" style={{ color: COLORS.muted }}>
+              Líquido · todos os canais
+            </div>
+          </Panel>
+          <Panel>
+            <div className="text-xs uppercase tracking-wider" style={{ color: COLORS.muted }}>
+              MC Total
+            </div>
+            <div
+              className="mt-1 text-2xl font-bold"
+              style={{ color: kpis.mcTotal != null && kpis.mcTotal < 0 ? COLORS.red : COLORS.green }}
+            >
+              {kpis.mcTotal == null ? <Na /> : brl(kpis.mcTotal)}
+            </div>
+            <div className="mt-0.5 text-[10px]" style={{ color: COLORS.muted }}>
+              Soma das M.C. · todos os canais
+            </div>
+          </Panel>
+        </div>
         <Panel>
           <div className="text-xs uppercase tracking-wider" style={{ color: COLORS.muted }}>
             Total de Pedidos

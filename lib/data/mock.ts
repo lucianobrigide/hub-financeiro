@@ -29,6 +29,7 @@ const BASE: DashboardData = {
     totalVenda: 20641882.07,
     totalPedidos: 108104,
     ticketMedio: 190.94,
+    mcTotal: 1685000.0,
   },
   provavel: {
     mediaVendaDiaria: 110754.17,
@@ -111,6 +112,7 @@ function dashboardFor(month?: string): DashboardData {
       totalVenda: r(BASE.kpis.totalVenda),
       totalPedidos: ri(BASE.kpis.totalPedidos),
       ticketMedio: r(BASE.kpis.ticketMedio),
+      mcTotal: null,
     },
     provavel: {
       ...BASE.provavel,

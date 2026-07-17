@@ -12,6 +12,8 @@ export interface Kpis {
   totalVenda: number;
   totalPedidos: number;
   ticketMedio: number;
+  /** Soma das M.C. de todos os canais. null se nenhum canal tem M.C. calculada. */
+  mcTotal: number | null;
 }
 
 /** Bloco "Provável" — projeções e percentuais de margem. */
