@@ -35,9 +35,15 @@ export async function fetchDreCompletoAction(month: string): Promise<{
 }> {
   const topo = (await dataProvider.getDreTopo?.(month)) ?? {};
   const detalhe = [...((await dataProvider.getDreGrupoRDetalhe?.(month)) ?? [])];
+  // ADS de marketplace (Hub) vira subcategoria do C1, junto do marketing próprio (Omie).
   const ads = topo["Marketing & Tráfego"];
   if (ads) detalhe.push({ dre_code: "C1", nome: "ADS Marketplaces (Hub)", valor: ads });
-  const topoSemAds = { ...topo };
-  delete topoSemAds["Marketing & Tráfego"]; // agora vive dentro do C1 (via detalhe), evita dupla soma
-  return { topo: topoSemAds, detalhe };
+  // DIFAL da plataforma (Hub) vira subcategoria do I1, junto do DIFAL pago por fora (Omie).
+  const difalHub = topo["DIFAL"];
+  if (difalHub) detalhe.push({ dre_code: "I1", nome: "DIFAL Plataforma (Hub)", valor: difalHub });
+  const topoOut = { ...topo };
+  delete topoOut["Marketing & Tráfego"]; // agora vive no C1 (via detalhe)
+  delete topoOut["DIFAL"]; // agora vive no I1 (via detalhe)
+  delete topoOut["Impostos s/ Vendas"]; // computado como soma dos filhos (DIFAL + IPI)
+  return { topo: topoOut, detalhe };
 }

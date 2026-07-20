@@ -145,22 +145,29 @@ export function DreTable() {
       return n;
     });
 
-  // Valor "próprio" de cada linha: se tem subcategorias (Omie), soma-as; senão o topo do Hub
-  // (por rótulo); senão null ("—"). Filhos (DIFAL/IPI) e totais são tratados no cascateamento.
-  const ownValue = (row: (typeof DRE_STRUCTURE)[number]): number | null => {
+  // Pass 1 — valor "próprio" bruto: subcategorias (Omie) somadas; senão topo do Hub (por
+  // rótulo); senão null ("—").
+  const own: (number | null)[] = DRE_STRUCTURE.map((row) => {
     const filhos = row.code ? detalhe[row.code] : undefined;
     if (filhos && filhos.length) return filhos.reduce((s, f) => s + f.valor, 0);
     if (row.label in topo) return topo[row.label];
     return row.valor;
-  };
+  });
+  // Pass 2 — um "sub" seguido de linhas "child" (ex.: Impostos → DIFAL/IPI) vale a soma delas.
+  DRE_STRUCTURE.forEach((row, i) => {
+    if (row.kind !== "sub") return;
+    const kids: number[] = [];
+    for (let j = i + 1; j < DRE_STRUCTURE.length && DRE_STRUCTURE[j].kind === "child"; j++) kids.push(j);
+    if (kids.length && kids.some((j) => own[j] != null)) own[i] = kids.reduce((s, j) => s + (own[j] ?? 0), 0);
+  });
 
   // Cascateamento: acumula os "sub" (− ou +) a partir da "base"; "total" mostra o acumulado;
-  // "child" (subdivisão de Impostos) é só exibição — não entra na conta. Linha "—" conta 0.
+  // "child" é só exibição (a soma entra pelo "sub" pai). Linha "—" conta 0.
   const display: (number | null)[] = [];
   {
     let acc = 0;
     DRE_STRUCTURE.forEach((row, i) => {
-      const v = ownValue(row);
+      const v = own[i];
       if (row.kind === "base") {
         acc = v ?? 0;
         display[i] = acc;
