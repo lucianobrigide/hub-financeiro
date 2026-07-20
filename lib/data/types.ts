@@ -211,6 +211,12 @@ export interface DataProvider {
    * OPCIONAL: só o provider Supabase implementa.
    */
   getDreGrupoR?(month: string): Promise<Record<string, number>>;
+  /**
+   * Subcategorias (drill-down) das linhas do DRE preenchíveis pela Omie, para um mês.
+   * Array de `{ dre_code, nome, valor }` — o DreTable agrupa por dre_code p/ expandir a linha.
+   * OPCIONAL: só o provider Supabase implementa.
+   */
+  getDreGrupoRDetalhe?(month: string): Promise<{ dre_code: string; nome: string; valor: number }[]>;
 }
 
 /** Um cron job na página de Crons. */

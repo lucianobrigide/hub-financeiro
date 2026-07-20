@@ -18,3 +18,10 @@ export async function fetchDreSkuAction(canal: string, month: string): Promise<S
 export async function fetchDreGrupoRAction(month: string): Promise<Record<string, number>> {
   return (await dataProvider.getDreGrupoR?.(month)) ?? {};
 }
+
+// Server Action: subcategorias (drill-down) das linhas do DRE da Omie no mês.
+export async function fetchDreGrupoRDetalheAction(
+  month: string,
+): Promise<{ dre_code: string; nome: string; valor: number }[]> {
+  return (await dataProvider.getDreGrupoRDetalhe?.(month)) ?? [];
+}

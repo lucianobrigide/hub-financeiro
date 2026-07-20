@@ -332,6 +332,11 @@ export const supabaseProvider: DataProvider = {
     return (await rpc<Record<string, number>>("omie_dre_grupo_r", { p_month: month })) ?? {};
   },
 
+  // Subcategorias (drill-down) de cada linha do DRE (Omie) no mês, para expandir ao clicar.
+  async getDreGrupoRDetalhe(month: string): Promise<{ dre_code: string; nome: string; valor: number }[]> {
+    return (await rpc<{ dre_code: string; nome: string; valor: number }[]>("omie_dre_grupo_r_detalhe", { p_month: month })) ?? [];
+  },
+
   // DRE por SKU de um canal no mês: agrega as linhas (sku×dia) do RPC dre_sku
   // em totais mensais + série diária por SKU. M.C. = fat − CMV − comissão (produto).
   async getDreSku(canal: string, month: string): Promise<SkuDre[]> {

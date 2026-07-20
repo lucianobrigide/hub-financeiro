@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { fetchDreGrupoRAction } from "@/app/actions";
+import { Fragment, useEffect, useState } from "react";
+import { fetchDreGrupoRDetalheAction } from "@/app/actions";
 import { COLORS, brl, pct } from "./ui";
 
 /**
@@ -117,19 +117,31 @@ function Cell({ value, render }: { value: number | null; render: (v: number) => 
 export function DreTable() {
   const mes = mesReferencia();
   const mesValue = mesReferenciaValue();
-  // Valores preenchíveis pela Omie (Grupo R + C# de fonte Omie), casados por `code`.
-  // A metade de cima (Receita→MC) ainda vem do Hub — fica "—" por enquanto.
-  const [valores, setValores] = useState<Record<string, number>>({});
+  // Subcategorias por linha (Grupo R + C# de fonte Omie) do mês fechado. A metade de cima
+  // (Receita→MC) ainda vem do Hub — fica "—". Clique numa linha com detalhe p/ abrir/fechar.
+  const [detalhe, setDetalhe] = useState<Record<string, { nome: string; valor: number }[]>>({});
+  const [aberto, setAberto] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     let ativo = true;
-    fetchDreGrupoRAction(mesValue).then((v) => {
-      if (ativo) setValores(v ?? {});
+    fetchDreGrupoRDetalheAction(mesValue).then((rows) => {
+      if (!ativo) return;
+      const g: Record<string, { nome: string; valor: number }[]> = {};
+      for (const rr of rows) (g[rr.dre_code] ??= []).push({ nome: rr.nome, valor: rr.valor });
+      setDetalhe(g);
     });
     return () => {
       ativo = false;
     };
   }, [mesValue]);
+
+  const toggle = (code: string) =>
+    setAberto((s) => {
+      const n = new Set(s);
+      if (n.has(code)) n.delete(code);
+      else n.add(code);
+      return n;
+    });
 
   return (
     <div className="overflow-x-auto">
@@ -156,60 +168,85 @@ export function DreTable() {
             const isTotal = row.kind === "total";
             const isBase = row.kind === "base";
             const isChild = row.kind === "child";
-            // Preenche pela Omie quando o code da linha existe no mapa; senão fica "—".
-            const valor = row.code && valores[row.code] != null ? valores[row.code] : row.valor;
+            const filhos = row.code ? detalhe[row.code] : undefined;
+            const temDetalhe = !!filhos && filhos.length > 0;
+            // Total da linha = soma das subcategorias da Omie; senão o valor estático ("—").
+            const valor = temDetalhe ? filhos!.reduce((s, f) => s + f.valor, 0) : row.valor;
+            const estaAberto = temDetalhe && row.code ? aberto.has(row.code) : false;
             return (
-              <tr
-                key={row.label + i}
-                style={{
-                  borderTop: isTotal ? `1px solid ${COLORS.panelBorder}` : undefined,
-                  background: isTotal ? `${COLORS.cyan}0a` : undefined,
-                }}
-              >
-                <td
-                  className="py-1.5 text-center text-xs font-bold"
-                  style={{ color: row.op === "=" ? COLORS.cyan : COLORS.muted }}
-                >
-                  {row.op ?? ""}
-                </td>
-                <td
-                  className="py-1.5"
+              <Fragment key={row.label + i}>
+                <tr
+                  onClick={temDetalhe && row.code ? () => toggle(row.code!) : undefined}
                   style={{
-                    paddingLeft: isChild ? 24 : isBase || isTotal ? 0 : 8,
-                    color: isTotal || isBase ? COLORS.white : COLORS.muted,
-                    fontWeight: isTotal || isBase ? 700 : 400,
-                    fontSize: isChild ? 12 : undefined,
+                    borderTop: isTotal ? `1px solid ${COLORS.panelBorder}` : undefined,
+                    background: isTotal ? `${COLORS.cyan}0a` : undefined,
+                    cursor: temDetalhe ? "pointer" : undefined,
                   }}
                 >
-                  {row.label}
-                  {row.tag && (
-                    <span
-                      className="ml-2 rounded px-1 text-[9px] font-semibold"
-                      style={{
-                        color: row.tag === "F" ? COLORS.cyan : COLORS.green,
-                        border: `1px solid ${row.tag === "F" ? COLORS.cyan : COLORS.green}55`,
-                      }}
-                    >
-                      {row.tag}
-                    </span>
-                  )}
-                </td>
-                <td className="py-1.5 text-right text-[10px]" style={{ color: COLORS.muted }}>
-                  {row.code ?? ""}
-                </td>
-                <td
-                  className="py-1.5 text-right tabular-nums"
-                  style={{
-                    color: isTotal || isBase ? COLORS.white : COLORS.muted,
-                    fontWeight: isTotal || isBase ? 700 : 400,
-                  }}
-                >
-                  <Cell value={valor} render={brl} />
-                </td>
-                <td className="py-1.5 text-right tabular-nums" style={{ color: COLORS.muted }}>
-                  <Cell value={row.av} render={pct} />
-                </td>
-              </tr>
+                  <td
+                    className="py-1.5 text-center text-xs font-bold"
+                    style={{ color: row.op === "=" ? COLORS.cyan : COLORS.muted }}
+                  >
+                    {row.op ?? ""}
+                  </td>
+                  <td
+                    className="py-1.5"
+                    style={{
+                      paddingLeft: isChild ? 24 : isBase || isTotal ? 0 : 8,
+                      color: isTotal || isBase ? COLORS.white : COLORS.muted,
+                      fontWeight: isTotal || isBase ? 700 : 400,
+                      fontSize: isChild ? 12 : undefined,
+                    }}
+                  >
+                    {temDetalhe && (
+                      <span className="mr-1 inline-block w-2 text-[9px]" style={{ color: COLORS.cyan }}>
+                        {estaAberto ? "▾" : "▸"}
+                      </span>
+                    )}
+                    {row.label}
+                    {row.tag && (
+                      <span
+                        className="ml-2 rounded px-1 text-[9px] font-semibold"
+                        style={{
+                          color: row.tag === "F" ? COLORS.cyan : COLORS.green,
+                          border: `1px solid ${row.tag === "F" ? COLORS.cyan : COLORS.green}55`,
+                        }}
+                      >
+                        {row.tag}
+                      </span>
+                    )}
+                  </td>
+                  <td className="py-1.5 text-right text-[10px]" style={{ color: COLORS.muted }}>
+                    {row.code ?? ""}
+                  </td>
+                  <td
+                    className="py-1.5 text-right tabular-nums"
+                    style={{
+                      color: isTotal || isBase ? COLORS.white : COLORS.muted,
+                      fontWeight: isTotal || isBase ? 700 : 400,
+                    }}
+                  >
+                    <Cell value={valor} render={brl} />
+                  </td>
+                  <td className="py-1.5 text-right tabular-nums" style={{ color: COLORS.muted }}>
+                    <Cell value={row.av} render={pct} />
+                  </td>
+                </tr>
+                {estaAberto &&
+                  filhos!.map((f, j) => (
+                    <tr key={`${row.label}${i}-sub${j}`} style={{ background: `${COLORS.cyan}06` }}>
+                      <td />
+                      <td className="py-1 text-[11px]" style={{ paddingLeft: 34, color: COLORS.muted }}>
+                        {f.nome}
+                      </td>
+                      <td />
+                      <td className="py-1 text-right text-[11px] tabular-nums" style={{ color: COLORS.muted }}>
+                        {brl(f.valor)}
+                      </td>
+                      <td />
+                    </tr>
+                  ))}
+              </Fragment>
             );
           })}
         </tbody>
