@@ -326,6 +326,12 @@ export const supabaseProvider: DataProvider = {
     return rpc<CronsStatus>("crons_status");
   },
 
+  // Linhas do DRE preenchíveis pela Omie (Grupo R + C# de fonte Omie) no mês.
+  // Mapa dre_code -> valor; o DreTable casa pelo campo `code` de cada linha.
+  async getDreGrupoR(month: string): Promise<Record<string, number>> {
+    return (await rpc<Record<string, number>>("omie_dre_grupo_r", { p_month: month })) ?? {};
+  },
+
   // DRE por SKU de um canal no mês: agrega as linhas (sku×dia) do RPC dre_sku
   // em totais mensais + série diária por SKU. M.C. = fat − CMV − comissão (produto).
   async getDreSku(canal: string, month: string): Promise<SkuDre[]> {

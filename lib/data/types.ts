@@ -205,6 +205,12 @@ export interface DataProvider {
    * OPCIONAL: só o provider Supabase implementa.
    */
   getDreSku?(canal: string, month: string): Promise<SkuDre[]>;
+  /**
+   * Linhas do DRE preenchíveis pela Omie (Grupo R + C# de fonte Omie) para um mês.
+   * Retorna mapa `dre_code -> valor` (ex.: { R1: 6458.35, R3: 261768.89 }).
+   * OPCIONAL: só o provider Supabase implementa.
+   */
+  getDreGrupoR?(month: string): Promise<Record<string, number>>;
 }
 
 /** Um cron job na página de Crons. */

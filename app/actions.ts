@@ -13,3 +13,8 @@ export async function fetchDashboardAction(month: string): Promise<DashboardData
 export async function fetchDreSkuAction(canal: string, month: string): Promise<SkuDre[]> {
   return (await dataProvider.getDreSku?.(canal, month)) ?? [];
 }
+
+// Server Action: linhas do DRE preenchíveis pela Omie (Grupo R) no mês. Mapa dre_code -> valor.
+export async function fetchDreGrupoRAction(month: string): Promise<Record<string, number>> {
+  return (await dataProvider.getDreGrupoR?.(month)) ?? {};
+}

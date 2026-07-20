@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { fetchDreGrupoRAction } from "@/app/actions";
 import { COLORS, brl, pct } from "./ui";
 
 /**
@@ -93,6 +95,14 @@ function mesReferencia(): string {
     .replace(/^\w/, (c) => c.toUpperCase());
 }
 
+/** 'YYYY-MM' do último mês fechado (fuso SP) — chave que os RPCs esperam. */
+function mesReferenciaValue(): string {
+  const hojeSP = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+  const [y, m] = hojeSP.split("-").map(Number);
+  const ref = new Date(Date.UTC(y, m - 2, 1));
+  return `${ref.getUTCFullYear()}-${String(ref.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
 function Cell({ value, render }: { value: number | null; render: (v: number) => string }) {
   if (value == null) {
     return (
@@ -106,6 +116,20 @@ function Cell({ value, render }: { value: number | null; render: (v: number) => 
 
 export function DreTable() {
   const mes = mesReferencia();
+  const mesValue = mesReferenciaValue();
+  // Valores preenchíveis pela Omie (Grupo R + C# de fonte Omie), casados por `code`.
+  // A metade de cima (Receita→MC) ainda vem do Hub — fica "—" por enquanto.
+  const [valores, setValores] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    let ativo = true;
+    fetchDreGrupoRAction(mesValue).then((v) => {
+      if (ativo) setValores(v ?? {});
+    });
+    return () => {
+      ativo = false;
+    };
+  }, [mesValue]);
 
   return (
     <div className="overflow-x-auto">
@@ -132,6 +156,8 @@ export function DreTable() {
             const isTotal = row.kind === "total";
             const isBase = row.kind === "base";
             const isChild = row.kind === "child";
+            // Preenche pela Omie quando o code da linha existe no mapa; senão fica "—".
+            const valor = row.code && valores[row.code] != null ? valores[row.code] : row.valor;
             return (
               <tr
                 key={row.label + i}
@@ -178,7 +204,7 @@ export function DreTable() {
                     fontWeight: isTotal || isBase ? 700 : 400,
                   }}
                 >
-                  <Cell value={row.valor} render={brl} />
+                  <Cell value={valor} render={brl} />
                 </td>
                 <td className="py-1.5 text-right tabular-nums" style={{ color: COLORS.muted }}>
                   <Cell value={row.av} render={pct} />
