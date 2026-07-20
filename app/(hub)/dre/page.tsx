@@ -9,8 +9,8 @@ export default function DrePage() {
       <div>
         <h1 className="text-xl font-bold text-white">D.R.E — Demonstrativo de Resultados</h1>
         <p className="mt-1 text-sm" style={{ color: COLORS.muted }}>
-          Estrutura do fechamento oficial. Grupo R (despesas da Omie) preenchido para o
-          mês fechado; a metade de cima (Receita → M.C.) vem do Hub e entra em breve.
+          Fechamento oficial do mês fechado. Topo (Receita → M.C.) consolidado dos canais
+          do Hub; Grupo R (despesas) da Omie. Clique numa linha para ver a subdivisão.
         </p>
       </div>
       <Panel>

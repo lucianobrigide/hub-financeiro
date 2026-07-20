@@ -25,3 +25,19 @@ export async function fetchDreGrupoRDetalheAction(
 ): Promise<{ dre_code: string; nome: string; valor: number }[]> {
   return (await dataProvider.getDreGrupoRDetalhe?.(month)) ?? [];
 }
+
+// Server Action: DRE completo do mês. Junta o topo (Hub, acima da MC) com o detalhe do
+// Grupo R (Omie). Funde o ADS de marketplace como subcategoria do C1 (Marketing & Tráfego),
+// pra a soma das subcategorias fechar com o total da linha.
+export async function fetchDreCompletoAction(month: string): Promise<{
+  topo: Record<string, number>;
+  detalhe: { dre_code: string; nome: string; valor: number }[];
+}> {
+  const topo = (await dataProvider.getDreTopo?.(month)) ?? {};
+  const detalhe = [...((await dataProvider.getDreGrupoRDetalhe?.(month)) ?? [])];
+  const ads = topo["Marketing & Tráfego"];
+  if (ads) detalhe.push({ dre_code: "C1", nome: "ADS Marketplaces (Hub)", valor: ads });
+  const topoSemAds = { ...topo };
+  delete topoSemAds["Marketing & Tráfego"]; // agora vive dentro do C1 (via detalhe), evita dupla soma
+  return { topo: topoSemAds, detalhe };
+}

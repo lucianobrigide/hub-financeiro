@@ -337,6 +337,29 @@ export const supabaseProvider: DataProvider = {
     return (await rpc<{ dre_code: string; nome: string; valor: number }[]>("omie_dre_grupo_r_detalhe", { p_month: month })) ?? [];
   },
 
+  // Linhas ACIMA da Margem de Contribuição, consolidadas de TODOS os canais (reusa getDashboard).
+  // Soma as deduções por rótulo, tolerando os labels heterogêneos dos canais (ML separa
+  // Comissão/Frete; Shopee combina; TikTok tem "Taxas"). Retorna mapa label→valor.
+  async getDreTopo(month: string): Promise<Record<string, number>> {
+    const d = await this.getDashboard(month);
+    const P = d.plataformasDre;
+    const somaDed = (...labels: string[]) =>
+      P.reduce((s, p) => s + p.deducoes.filter((x) => labels.includes(x.label)).reduce((a, x) => a + (x.valor ?? 0), 0), 0);
+    const difal = somaDed("DIFAL");
+    return {
+      "Receita Bruta": P.reduce((s, p) => s + (p.faturamentoBruto ?? 0), 0),
+      "Vendas Canceladas": P.reduce((s, p) => s + (p.cancelDevolucoes ?? 0), 0),
+      "Impostos s/ Vendas": difal, // hoje só DIFAL; IPI não é isolado no Hub
+      DIFAL: difal,
+      "Comissões/Fretes Marketplaces": somaDed(
+        "Comissão", "Frete", "Comissão e Fretes reais cobrados", "Taxas", "Afiliados", "Custo Devoluções",
+      ),
+      CMV: somaDed("CMV"),
+      "Despesas com o Full": somaDed("Full"),
+      "Marketing & Tráfego": somaDed("ADS"), // ADS de marketplace; some no C1 junto do marketing próprio (Omie)
+    };
+  },
+
   // DRE por SKU de um canal no mês: agrega as linhas (sku×dia) do RPC dre_sku
   // em totais mensais + série diária por SKU. M.C. = fat − CMV − comissão (produto).
   async getDreSku(canal: string, month: string): Promise<SkuDre[]> {

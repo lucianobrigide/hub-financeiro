@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useState } from "react";
-import { fetchDreGrupoRDetalheAction } from "@/app/actions";
+import { fetchDreCompletoAction } from "@/app/actions";
 import { COLORS, brl, pct } from "./ui";
 
 /**
@@ -117,15 +117,17 @@ function Cell({ value, render }: { value: number | null; render: (v: number) => 
 export function DreTable() {
   const mes = mesReferencia();
   const mesValue = mesReferenciaValue();
-  // Subcategorias por linha (Grupo R + C# de fonte Omie) do mês fechado. A metade de cima
-  // (Receita→MC) ainda vem do Hub — fica "—". Clique numa linha com detalhe p/ abrir/fechar.
+  // DRE do mês fechado: topo (Hub, acima da MC, por rótulo) + subcategorias do Grupo R
+  // (Omie, por código). Clique numa linha com detalhe p/ abrir/fechar.
+  const [topo, setTopo] = useState<Record<string, number>>({});
   const [detalhe, setDetalhe] = useState<Record<string, { nome: string; valor: number }[]>>({});
   const [aberto, setAberto] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     let ativo = true;
-    fetchDreGrupoRDetalheAction(mesValue).then((rows) => {
+    fetchDreCompletoAction(mesValue).then(({ topo: t, detalhe: rows }) => {
       if (!ativo) return;
+      setTopo(t ?? {});
       const g: Record<string, { nome: string; valor: number }[]> = {};
       for (const rr of rows) (g[rr.dre_code] ??= []).push({ nome: rr.nome, valor: rr.valor });
       setDetalhe(g);
@@ -142,6 +144,36 @@ export function DreTable() {
       else n.add(code);
       return n;
     });
+
+  // Valor "próprio" de cada linha: se tem subcategorias (Omie), soma-as; senão o topo do Hub
+  // (por rótulo); senão null ("—"). Filhos (DIFAL/IPI) e totais são tratados no cascateamento.
+  const ownValue = (row: (typeof DRE_STRUCTURE)[number]): number | null => {
+    const filhos = row.code ? detalhe[row.code] : undefined;
+    if (filhos && filhos.length) return filhos.reduce((s, f) => s + f.valor, 0);
+    if (row.label in topo) return topo[row.label];
+    return row.valor;
+  };
+
+  // Cascateamento: acumula os "sub" (− ou +) a partir da "base"; "total" mostra o acumulado;
+  // "child" (subdivisão de Impostos) é só exibição — não entra na conta. Linha "—" conta 0.
+  const display: (number | null)[] = [];
+  {
+    let acc = 0;
+    DRE_STRUCTURE.forEach((row, i) => {
+      const v = ownValue(row);
+      if (row.kind === "base") {
+        acc = v ?? 0;
+        display[i] = acc;
+      } else if (row.kind === "total") {
+        display[i] = acc;
+      } else if (row.kind === "child") {
+        display[i] = v;
+      } else {
+        acc += row.op === "+" ? (v ?? 0) : -(v ?? 0);
+        display[i] = v;
+      }
+    });
+  }
 
   return (
     <div className="overflow-x-auto">
@@ -170,8 +202,7 @@ export function DreTable() {
             const isChild = row.kind === "child";
             const filhos = row.code ? detalhe[row.code] : undefined;
             const temDetalhe = !!filhos && filhos.length > 0;
-            // Total da linha = soma das subcategorias da Omie; senão o valor estático ("—").
-            const valor = temDetalhe ? filhos!.reduce((s, f) => s + f.valor, 0) : row.valor;
+            const valor = display[i];
             const estaAberto = temDetalhe && row.code ? aberto.has(row.code) : false;
             return (
               <Fragment key={row.label + i}>

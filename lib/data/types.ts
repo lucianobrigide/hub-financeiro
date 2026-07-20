@@ -217,6 +217,12 @@ export interface DataProvider {
    * OPCIONAL: só o provider Supabase implementa.
    */
   getDreGrupoRDetalhe?(month: string): Promise<{ dre_code: string; nome: string; valor: number }[]>;
+  /**
+   * Linhas ACIMA da Margem de Contribuição, consolidadas do Hub (todos os canais), no mês.
+   * Mapa `label da linha do DRE -> valor` (ex.: { "Receita Bruta": …, "CMV": … }).
+   * OPCIONAL: só o provider Supabase implementa.
+   */
+  getDreTopo?(month: string): Promise<Record<string, number>>;
 }
 
 /** Um cron job na página de Crons. */
