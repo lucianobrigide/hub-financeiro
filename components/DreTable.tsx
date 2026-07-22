@@ -231,6 +231,8 @@ export function DreTable() {
             const temDetalhe = !!filhos && filhos.length > 0;
             const valor = display[i];
             const estaAberto = temDetalhe && row.code ? aberto.has(row.code) : false;
+            // Esconde linhas sem despesa no mês (mantém Receita/base e os totais da cascata).
+            if (!isTotal && !isBase && valor == null) return null;
             return (
               <Fragment key={row.label + i}>
                 <tr
