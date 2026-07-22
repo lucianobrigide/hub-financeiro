@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { CronsStatus, DashboardData, DataProvider, Month, PlataformaDre, SerieDiariaItem, SkuDre, VendaDiaria } from "./types";
+import type { CronsStatus, DashboardData, DataProvider, DreItem, Month, PlataformaDre, SerieDiariaItem, SkuDre, VendaDiaria } from "./types";
 
 /** Labels das 6 deduções do mini-DRE, na ordem do card. */
 const DEDUCAO_LABELS = ["Comissão", "Frete", "ADS", "Full", "Afiliados", "CMV"];
@@ -335,6 +335,11 @@ export const supabaseProvider: DataProvider = {
   // Subcategorias (drill-down) de cada linha do DRE (Omie) no mês, para expandir ao clicar.
   async getDreGrupoRDetalhe(month: string): Promise<{ dre_code: string; nome: string; valor: number }[]> {
     return (await rpc<{ dre_code: string; nome: string; valor: number }[]>("omie_dre_grupo_r_detalhe", { p_month: month })) ?? [];
+  },
+
+  // 3º nível: despesas unitárias de uma (linha × categoria) no mês.
+  async getDreItens(month: string, dreCode: string, categoria: string): Promise<DreItem[]> {
+    return (await rpc<DreItem[]>("omie_dre_itens", { p_month: month, p_dre_code: dreCode, p_categoria: categoria })) ?? [];
   },
 
   // Linhas ACIMA da Margem de Contribuição, consolidadas de TODOS os canais (reusa getDashboard).

@@ -181,6 +181,17 @@ export interface Month {
  * via rede. Manter a assinatura assíncrona garante que trocar a fonte não
  * exija mudar nenhum componente visual.
  */
+/** Uma despesa unitária no drill-down de item do DRE. */
+export interface DreItem {
+  fornecedor: string;
+  valor: number;
+  /** "DD/MM". */
+  data: string;
+  doc: string | null;
+  /** 'AP' (conta a pagar) | 'CC' (pagamento direto na conta corrente). */
+  fonte: string;
+}
+
 export interface DataProvider {
   /**
    * Lista os meses disponíveis (mais recente primeiro).
@@ -217,6 +228,12 @@ export interface DataProvider {
    * OPCIONAL: só o provider Supabase implementa.
    */
   getDreGrupoRDetalhe?(month: string): Promise<{ dre_code: string; nome: string; valor: number }[]>;
+  /**
+   * 3º nível do drill-down: despesas UNITÁRIAS de uma (linha × categoria) no mês.
+   * Cada item: fornecedor (nome), valor, data, doc, fonte ('AP' | 'CC').
+   * OPCIONAL: só o provider Supabase implementa.
+   */
+  getDreItens?(month: string, dreCode: string, categoria: string): Promise<DreItem[]>;
   /**
    * Linhas ACIMA da Margem de Contribuição, consolidadas do Hub (todos os canais), no mês.
    * Mapa `label da linha do DRE -> valor` (ex.: { "Receita Bruta": …, "CMV": … }).

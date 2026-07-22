@@ -1,7 +1,7 @@
 "use server";
 
 import { dataProvider } from "@/lib/data";
-import type { DashboardData, SkuDre } from "@/lib/data/types";
+import type { DashboardData, DreItem, SkuDre } from "@/lib/data/types";
 
 // Server Action: o dropdown (client) chama isto ao trocar o mês. O dataProvider
 // roda SÓ no servidor — o client nunca importa lib/data (que puxa server-only).
@@ -24,6 +24,15 @@ export async function fetchDreGrupoRDetalheAction(
   month: string,
 ): Promise<{ dre_code: string; nome: string; valor: number }[]> {
   return (await dataProvider.getDreGrupoRDetalhe?.(month)) ?? [];
+}
+
+// Server Action: 3º nível — despesas unitárias de uma (linha × categoria) no mês.
+export async function fetchDreItensAction(
+  month: string,
+  dreCode: string,
+  categoria: string,
+): Promise<DreItem[]> {
+  return (await dataProvider.getDreItens?.(month, dreCode, categoria)) ?? [];
 }
 
 // Server Action: DRE completo do mês. Junta o topo (Hub, acima da MC) com o detalhe do

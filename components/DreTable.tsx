@@ -1,7 +1,8 @@
 "use client";
 
 import { Fragment, useEffect, useState } from "react";
-import { fetchDreCompletoAction } from "@/app/actions";
+import { fetchDreCompletoAction, fetchDreItensAction } from "@/app/actions";
+import type { DreItem } from "@/lib/data/types";
 import { COLORS, brl, pct } from "./ui";
 
 /**
@@ -122,6 +123,9 @@ export function DreTable() {
   const [topo, setTopo] = useState<Record<string, number>>({});
   const [detalhe, setDetalhe] = useState<Record<string, { nome: string; valor: number }[]>>({});
   const [aberto, setAberto] = useState<Set<string>>(new Set());
+  // 3º nível: itens unitários por (linha|categoria), buscados sob demanda ao clicar na categoria.
+  const [abertoItem, setAbertoItem] = useState<Set<string>>(new Set());
+  const [itens, setItens] = useState<Record<string, DreItem[]>>({});
 
   useEffect(() => {
     let ativo = true;
@@ -144,6 +148,22 @@ export function DreTable() {
       else n.add(code);
       return n;
     });
+
+  // Abre/fecha os itens unitários de uma categoria; busca sob demanda (cache por chave).
+  const toggleItem = (code: string, cat: string) => {
+    const key = `${code}|${cat}`;
+    setAbertoItem((s) => {
+      const n = new Set(s);
+      if (n.has(key)) n.delete(key);
+      else n.add(key);
+      return n;
+    });
+    if (!itens[key]) {
+      fetchDreItensAction(mesValue, code, cat).then((list) =>
+        setItens((prev) => ({ ...prev, [key]: list ?? [] })),
+      );
+    }
+  };
 
   // Pass 1 — valor "próprio" bruto: subcategorias (Omie) somadas; senão topo do Hub (por
   // rótulo); senão null ("—").
@@ -271,19 +291,62 @@ export function DreTable() {
                   </td>
                 </tr>
                 {estaAberto &&
-                  filhos!.map((f, j) => (
-                    <tr key={`${row.label}${i}-sub${j}`} style={{ background: `${COLORS.cyan}06` }}>
-                      <td />
-                      <td className="py-1 text-[11px]" style={{ paddingLeft: 34, color: COLORS.muted }}>
-                        {f.nome}
-                      </td>
-                      <td />
-                      <td className="py-1 text-right text-[11px] tabular-nums" style={{ color: COLORS.muted }}>
-                        {brl(f.valor)}
-                      </td>
-                      <td />
-                    </tr>
-                  ))}
+                  filhos!.map((f, j) => {
+                    const catKey = `${row.code}|${f.nome}`;
+                    const itemAberto = abertoItem.has(catKey);
+                    const lista = itens[catKey];
+                    return (
+                      <Fragment key={`${row.label}${i}-sub${j}`}>
+                        <tr
+                          onClick={row.code ? () => toggleItem(row.code!, f.nome) : undefined}
+                          style={{ background: `${COLORS.cyan}06`, cursor: "pointer" }}
+                        >
+                          <td />
+                          <td className="py-1 text-[11px]" style={{ paddingLeft: 34, color: COLORS.muted }}>
+                            <span className="mr-1 inline-block w-2 text-[9px]" style={{ color: COLORS.cyan }}>
+                              {itemAberto ? "▾" : "▸"}
+                            </span>
+                            {f.nome}
+                          </td>
+                          <td />
+                          <td className="py-1 text-right text-[11px] tabular-nums" style={{ color: COLORS.muted }}>
+                            {brl(f.valor)}
+                          </td>
+                          <td />
+                        </tr>
+                        {itemAberto &&
+                          (lista === undefined ? (
+                            <tr style={{ background: `${COLORS.cyan}03` }}>
+                              <td />
+                              <td className="py-1 text-[10px] italic" style={{ paddingLeft: 48, color: COLORS.muted }}>
+                                carregando…
+                              </td>
+                              <td />
+                              <td />
+                              <td />
+                            </tr>
+                          ) : (
+                            lista.map((it, k) => (
+                              <tr key={`${catKey}-${k}`} style={{ background: `${COLORS.cyan}03` }}>
+                                <td />
+                                <td className="py-1 text-[10px]" style={{ paddingLeft: 48, color: COLORS.muted }}>
+                                  {it.fornecedor}
+                                  <span className="ml-2 text-[9px]" style={{ color: COLORS.muted, opacity: 0.7 }}>
+                                    {it.data} · {it.fonte}
+                                    {it.doc ? ` · ${it.doc}` : ""}
+                                  </span>
+                                </td>
+                                <td />
+                                <td className="py-1 text-right text-[10px] tabular-nums" style={{ color: COLORS.muted }}>
+                                  {brl(it.valor)}
+                                </td>
+                                <td />
+                              </tr>
+                            ))
+                          ))}
+                      </Fragment>
+                    );
+                  })}
               </Fragment>
             );
           })}
