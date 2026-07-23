@@ -38,6 +38,8 @@ export const DRE_STRUCTURE: DreRow[] = [
   r("Impostos s/ Vendas", "sub", { op: "−" }),
   r("DIFAL", "child", { op: "−", code: "I1" }),
   r("IPI", "child", { op: "−", code: "I2" }),
+  r("PIS", "child", { op: "−", code: "I3" }),
+  r("COFINS", "child", { op: "−", code: "I4" }),
   r("Comissões/Fretes Marketplaces", "sub", { op: "−" }),
   r("Taxas de Cancelamento", "sub", { op: "−" }),
   r("Rebate Excedente", "sub", { op: "−", code: "C6" }),
