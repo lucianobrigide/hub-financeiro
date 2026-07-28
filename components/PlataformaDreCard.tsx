@@ -74,26 +74,43 @@ export function PlataformaDreCard({ p, href }: { p: PlataformaDre; href?: string
           })}
         </div>
 
+        {p.margemBruta != null && (
+          <div
+            className="mt-2 flex justify-between border-t pt-2 text-sm font-semibold"
+            style={{ borderColor: COLORS.panelBorder, color: COLORS.muted }}
+          >
+            <span>Margem Bruta (líq. − CMV)</span>
+            <span className="whitespace-nowrap">{brl(p.margemBruta)}</span>
+          </div>
+        )}
+
         <div
-          className="mt-3 flex items-center justify-between border-t pt-2 text-base font-bold"
-          style={{
-            borderColor: COLORS.panelBorder,
-            color: p.mc != null && p.mc < 0 ? COLORS.red : COLORS.green,
-          }}
+          className="mt-3 border-t pt-2"
+          style={{ borderColor: COLORS.panelBorder }}
         >
-          <span>M.C. (Margem de Contribuição)</span>
-          <span className="shrink-0 whitespace-nowrap pl-2">
-            {p.mc == null ? (
-              <Na small />
-            ) : (
-              <>
-                {brl(p.mc)}
-                {mcPct != null && (
-                  <span className="ml-1 text-xs font-semibold">{pct(mcPct)}</span>
-                )}
-              </>
-            )}
-          </span>
+          <div
+            className="flex items-center justify-between text-base font-bold"
+            style={{ color: p.mc == null ? COLORS.muted : p.mc < 0 ? COLORS.red : COLORS.green }}
+          >
+            <span>M.C. (Margem de Contribuição)</span>
+            <span className="shrink-0 whitespace-nowrap pl-2">
+              {p.mc == null ? (
+                p.mcNota ? null : <Na small />
+              ) : (
+                <>
+                  {brl(p.mc)}
+                  {mcPct != null && (
+                    <span className="ml-1 text-xs font-semibold">{pct(mcPct)}</span>
+                  )}
+                </>
+              )}
+            </span>
+          </div>
+          {p.mcNota && (
+            <div className="mt-0.5 text-right text-[9px] italic" style={{ color: COLORS.cyan }}>
+              {p.mcNota}
+            </div>
+          )}
         </div>
 
         {href && (

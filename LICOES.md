@@ -24,6 +24,11 @@
 - ML billing **`/summary/details` é por CICLO** e não bate com a soma dos `/details` da mesma key. Para a régua do Hub (creation_date, mês-calendário), usar os `/details`.
 - **TikTok:** endpoints rotulados "US/UK" **funcionam para o BR**; access token vai no header `x-tts-access-token` (não query).
 
+## Plugs, resíduos e funções órfãs (armadilhas de manutenção)
+- **`tt_deducoes.taxas` é um PLUG (resíduo), não uma soma explícita.** `taxas = fee_tax_total − comissão − afiliados − ads` — fecha a identidade por diferença. Efeito colateral: **qualquer campo novo que a TikTok adicionar ao `fin_fee_tax` cai dentro de `taxas` em silêncio**, sem virar linha própria. É comportamento versionado (mantido de propósito para reconciliar exato), mas se `taxas` crescer sem explicação, é aqui que olhar primeiro.
+- **Funções órfãs `sp_comissao` / `sp_frete`.** Parecem a régua de dedução da Shopee, mas **não alimentam o app** — a M.C. viva da Shopee vem de `sp_repasse` (escrow real). Marcadas com `COMMENT ON FUNCTION` no próprio objeto (28/07/2026) para não enganar quem for ler. Lição: dedução calculada por RPC ≠ dedução exibida; confirmar o caminho vivo (grep no provider) antes de "consertar" uma leitora.
+- **Cobertura ponderada por receita > cobertura por contagem.** No piso da M.C. (TikTok/Shopee), "17 de 96 pedidos" (17,7%) e "R$2.304 de R$13.601 liquidados" (16,9%) contam histórias parecidas aqui, mas divergem quando os pedidos grandes liquidam antes dos pequenos (ou vice-versa). O dinheiro é o denominador honesto.
+
 ## Nomenclatura resolvida
 - **`CDLIT` = "Seguidores"** (o label da API é genérico: "Tarifa por campanha de publicidade"). Não existe uma linha de "Display Ads" faltando. Teste (jun/2026): `CDLIT` na fatura = **R$4.527,81** vs painel de Seguidores **R$4.569,29** (0,9%, mesmo corte de ciclo). Já captado em `ml_ads_diario` (produto `seguidores`); soma **dentro da linha ADS**.
 

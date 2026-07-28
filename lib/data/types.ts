@@ -93,6 +93,12 @@ export interface PlataformaDre {
   deducoes: DreLinha[];
   /** Margem de Contribuição = líquido − Σ(deduções). null se faltar dedução. */
   mc: number | null;
+  /** Bruta − CMV, exibido quando o canal está "em consolidação" (cobertura < piso):
+   *  bruta/CMV são reais desde a venda, mas as deduções ainda aguardam liquidação. */
+  margemBruta?: number | null;
+  /** Nota da linha M.C. (ex.: "cobertura 17% — em consolidação"). Regra dura:
+   *  sem dado real de dedução, mostra-se cobertura, nunca um número estimado. */
+  mcNota?: string | null;
 }
 
 /** Um dia da série do gráfico diário (Faturamento + M.C. reconciliada). */

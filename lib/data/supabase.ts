@@ -247,11 +247,17 @@ interface RepasseSp {
   pedidos_com_repasse: number;
   pedidos_zero: number;
   pedidos_neg: number;
+  /** Subconjunto com escrow (escrow_adjusted preenchido): bruta e repasse do mesmo
+   *  conjunto, p/ a cobertura do piso e a M.C. acima dele fecharem dos dois lados. */
+  bruta_com_escrow: number;
+  repasse_com_escrow: number;
 }
 
 /** Retorno do RPC sp_cmv (CMV Shopee via ml_custo_produto + unaccent). */
 interface CmvSp {
   cmv_total: number;
+  /** CMV do subconjunto com escrow (p/ a M.C. acima do piso fechar dos dois lados). */
+  cmv_com_escrow: number;
   itens_com_custo: number;
   itens_total: number;
 }
@@ -292,7 +298,13 @@ interface FatTt {
   faturamento_bruto: number;
   devolucoes: number;
   faturamento_liquido: number;
+  /** Receita SÓ do subconjunto liquidado (base da M.C. acima do piso). */
+  liquido_liquidado: number;
   total_pedidos: number;
+  pedidos_liquidados: number;
+  /** Cobertura ponderada por receita = pago_liquidado / pago_total. */
+  pago_total: number;
+  pago_liquidado: number;
   settlement: number;
 }
 
@@ -309,9 +321,18 @@ interface DedTt {
 /** Retorno do RPC tt_cmv (CMV TikTok via ml_custo_produto + unaccent no seller_sku). */
 interface CmvTt {
   cmv_total: number;
+  /** CMV SÓ do subconjunto liquidado (p/ a M.C. acima do piso fechar dos dois lados). */
+  cmv_liquidado: number;
   itens_com_custo: number;
   itens_total: number;
+  itens_liquidados: number;
 }
+
+// Piso de cobertura (ponderada por receita) abaixo do qual NÃO se exibe M.C.: o card
+// mostra bruta/CMV/margem bruta reais e "em consolidação" no lugar de um número inventado.
+// 80% é valor INICIAL por julgamento (não calibrado) — revisar após um ciclo com variância
+// medida. Uma régua só, TikTok e Shopee. Ver CLAUDE.md (Convenções › piso de cobertura).
+const PISO_COBERTURA = 0.80;
 
 export const supabaseProvider: DataProvider = {
   async listAvailableMonths(): Promise<Month[]> {
@@ -585,15 +606,47 @@ export const supabaseProvider: DataProvider = {
         },
         (() => {
           const spBruto = spFat.faturamento_bruto || null;
-          const spLiquido = spBruto;
-          const spCmvVal = spCmv.itens_total > 0 ? spCmv.cmv_total : null;
-          // M.C. FLAT: Líquido − todas as linhas reais = M.C. (a conta fecha na aritmética
-          // visível). "Comissão e Fretes reais cobrados" é o que a Shopee EFETIVAMENTE reteve
-          // (comissão + serviço + frete já com o subsídio de frete creditado), derivado do
-          // repasse real: (bruta − escrow) menos os afiliados (linha própria). Não usa as
-          // taxas BRUTAS — que ignoravam os créditos e deixavam a M.C. ~R$15,5k pessimista.
-          const comFreteReal = spBruto != null && spRepasse.repasse_total != null
-            ? Math.round(((spBruto - spRepasse.repasse_total) - (spAfil.afiliados_total || 0)) * 100) / 100
+          const spLiquido = spBruto;                       // linha de topo: bruta real (100%)
+          const spCmvFull = spCmv.itens_total > 0 ? spCmv.cmv_total : null;
+          const cmvNota = spCmv.itens_total > 0
+            ? `${spCmv.itens_com_custo} de ${spCmv.itens_total} com custo`
+            : undefined;
+          // Mesma régua de piso do TikTok. Cobertura Shopee = bruta com escrow / bruta total
+          // (escrow chega no READY_TO_SHIP → hoje ~100%; o piso quase nunca dispara aqui).
+          const cobertura = spFat.faturamento_bruto > 0
+            ? spRepasse.bruta_com_escrow / spFat.faturamento_bruto : 0;
+          const cobPct = Math.round(cobertura * 100);
+
+          if (cobertura < PISO_COBERTURA) {
+            const deducoesSp = DEDUCAO_LABELS_SHOPEE
+              .map((label): { label: string; valor: number | null; nota?: string } =>
+                label === "CMV"
+                  ? { label, valor: spCmvFull, nota: cmvNota }
+                  : { label, valor: null, nota: label === "Comissão e Fretes reais cobrados" ? "aguardando liquidação" : undefined },
+              );
+            const margem = spBruto != null && spCmvFull != null
+              ? Math.round((spBruto - spCmvFull) * 100) / 100
+              : null;
+            return {
+              ...dreVazio("Shopee"),
+              faturamentoBruto: spBruto,
+              cancelDevolucoes: 0,
+              faturamentoLiquido: spLiquido,
+              deducoes: deducoesSp,
+              margemBruta: margem,
+              mc: null,
+              mcNota: `cobertura ${cobPct}% — em consolidação`,
+            };
+          }
+
+          // Acima do piso: M.C. sobre o subconjunto COM ESCROW dos dois lados (bruta, repasse
+          // e CMV do mesmo conjunto). "Comissão e Fretes reais cobrados" = o que a Shopee
+          // EFETIVAMENTE reteve (escrow, já com subsídio de frete/voucher creditado), derivado
+          // do repasse real: (bruta − escrow) − afiliados. A 100% coincide com o total.
+          const spCmvEsc = spCmv.itens_total > 0 ? spCmv.cmv_com_escrow : null;
+          const brutaEsc = spRepasse.bruta_com_escrow;
+          const comFreteReal = spRepasse.repasse_com_escrow != null
+            ? Math.round(((brutaEsc - spRepasse.repasse_com_escrow) - (spAfil.afiliados_total || 0)) * 100) / 100
             : null;
           const deducoesSp = DEDUCAO_LABELS_SHOPEE
             .map((label): { label: string; valor: number | null; nota?: string } => {
@@ -602,14 +655,12 @@ export const supabaseProvider: DataProvider = {
               if (label === "Full") return { label, valor: 0 };
               if (label === "Afiliados") return { label, valor: spAfil.afiliados_total || null };
               if (label === "DIFAL") return { label, valor: spDifal.difal_total_mes || null };
-              if (label === "CMV") return { label, valor: spCmvVal };
+              if (label === "CMV") return { label, valor: spCmvEsc, nota: cmvNota };
               if (label === "Custo Devoluções") return { label, valor: spCustoDev.custo_total || null };
               return { label, valor: null };
             });
           const totalDeducoesSp = deducoesSp.reduce((s, d) => s + (d.valor ?? 0), 0);
-          const spMc = spLiquido != null
-            ? Math.round((spLiquido - totalDeducoesSp) * 100) / 100
-            : null;
+          const spMc = Math.round((brutaEsc - totalDeducoesSp) * 100) / 100;
           return {
             ...dreVazio("Shopee"),
             faturamentoBruto: spBruto,
@@ -617,19 +668,53 @@ export const supabaseProvider: DataProvider = {
             faturamentoLiquido: spLiquido,
             deducoes: deducoesSp,
             mc: spMc,
+            mcNota: cobertura < 1 ? `cobertura ${cobPct}% — M.C. sobre pedidos com escrow` : undefined,
           };
         })(),
         (() => {
           const ttBruto = ttFat.faturamento_bruto || null;
-          // Bruta = gross antes da devolução; líquido = revenue_amount (base da M.C., NÃO muda com a
-          // devolução explícita). Cancel/Devoluções = refund líquido (7 pedidos em jun/2026).
+          // Bruta/líquido = 100% desde a venda (pago antes de liquidar). As deduções, porém,
+          // só existem quando o pedido liquida (o order detail NÃO traz fee_breakdown antes —
+          // teste 28/07/2026). REGRA DURA: nada estimado. Piso de cobertura decide a exibição.
           const ttLiquido = ttFat.faturamento_liquido || null;
-          const ttCmvVal = ttCmv.itens_total > 0 ? ttCmv.cmv_total : null;
           const cmvNota = ttCmv.itens_total > 0
             ? `${ttCmv.itens_com_custo} de ${ttCmv.itens_total} com custo`
             : undefined;
+          // Cobertura ponderada por RECEITA (não por contagem): quanto do dinheiro já liquidou.
+          const cobertura = ttFat.pago_total > 0 ? ttFat.pago_liquidado / ttFat.pago_total : 0;
+          const cobPct = Math.round(cobertura * 100);
+          const ttCmvFull = ttCmv.itens_total > 0 ? ttCmv.cmv_total : null;
+
+          if (cobertura < PISO_COBERTURA) {
+            // Em consolidação: bruta/CMV/margem bruta REAIS (100% desde a venda); deduções
+            // aguardam liquidação; M.C. não é exibida (mostra-se cobertura, não estimativa).
+            const deducoesTt = DEDUCAO_LABELS_TT.map((label) =>
+              label === "CMV"
+                ? { label, valor: ttCmvFull, nota: cmvNota }
+                : { label, valor: null, nota: label === "Comissão" ? "aguardando liquidação" : undefined },
+            );
+            const margem = ttLiquido != null && ttCmvFull != null
+              ? Math.round((ttLiquido - ttCmvFull) * 100) / 100
+              : null;
+            return {
+              ...dreVazio("TikTok Shop"),
+              faturamentoBruto: ttBruto,
+              cancelDevolucoes: ttBruto != null ? ttFat.devolucoes : null,
+              faturamentoLiquido: ttLiquido,
+              deducoes: deducoesTt,
+              margemBruta: margem,
+              mc: null,
+              mcNota: `cobertura ${cobPct}% — em consolidação`,
+            };
+          }
+
+          // Acima do piso: M.C. sobre o SUBCONJUNTO LIQUIDADO dos dois lados (receita e deduções
+          // do mesmo conjunto). Nunca líquido cheio contra dedução parcial. A 100% coincide com
+          // o total; só diverge na faixa onde o descasamento passaria batido.
+          const ttCmvLiq = ttCmv.itens_liquidados > 0 ? ttCmv.cmv_liquidado
+            : (ttCmv.itens_total > 0 ? 0 : null);
           const covNota = ttFat.total_pedidos > 0
-            ? `${ttDed.pedidos} de ${ttFat.total_pedidos} liquidados`
+            ? `${ttFat.pedidos_liquidados} de ${ttFat.total_pedidos} liquidados`
             : undefined;
           const deducoesTt = DEDUCAO_LABELS_TT.map((label) => {
             if (label === "Comissão") return { label, valor: ttDed.comissao || null, nota: covNota };
@@ -637,12 +722,12 @@ export const supabaseProvider: DataProvider = {
             if (label === "Frete") return { label, valor: ttDed.frete || null };
             if (label === "ADS") return { label, valor: ttDed.ads ?? 0 };
             if (label === "Afiliados") return { label, valor: ttDed.afiliados ?? 0 };
-            if (label === "CMV") return { label, valor: ttCmvVal, nota: cmvNota };
+            if (label === "CMV") return { label, valor: ttCmvLiq, nota: cmvNota };
             return { label, valor: null };
           });
           const totalDeducoesTt = deducoesTt.reduce((s, d) => s + (d.valor ?? 0), 0);
-          const ttMc = ttLiquido != null
-            ? Math.round((ttLiquido - totalDeducoesTt) * 100) / 100
+          const ttMc = ttFat.liquido_liquidado != null
+            ? Math.round((ttFat.liquido_liquidado - totalDeducoesTt) * 100) / 100
             : null;
           return {
             ...dreVazio("TikTok Shop"),
@@ -651,6 +736,7 @@ export const supabaseProvider: DataProvider = {
             faturamentoLiquido: ttLiquido,
             deducoes: deducoesTt,
             mc: ttMc,
+            mcNota: cobertura < 1 ? `cobertura ${cobPct}% — M.C. sobre pedidos liquidados` : undefined,
           };
         })(),
         (() => {
