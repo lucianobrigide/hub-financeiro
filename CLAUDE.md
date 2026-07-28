@@ -122,6 +122,7 @@ Padrão comum: OAuth com `refresh_token` **só no Vault**; `*_oauth_state` (linh
 
 ## Convenções
 
+- 🛑 **REGRA DURA — nenhum custo ou dedução é estimado, arbitrado ou preenchido por percentual. Tudo vem da API.** Se o dado ainda não existe, o número **não é exibido como se existisse** — mostra-se a **cobertura** (quantos pedidos têm o dado real), nunca uma aproximação. Isso **encerra** a opção de versionar a estimativa do `tt_deducoes` (e qualquer equivalente). (Luciano, 28/07/2026.)
 - **CLAUDE.md é a fonte de verdade; Notion é espelho.** Ao mudar regra/arquitetura, atualizar aqui primeiro.
 - **Toda sessão termina com commit + push** e confirmação por escrito (nº de commits, SHA do HEAD remoto, working tree limpo/sincronizado).
 - **Conflito de informação:** reportar o conflito ao Luciano; **não escolher sozinho** qual está certa.
