@@ -57,6 +57,19 @@ tiny-token-keepalive (25 */4)
 ```
 Monitorar: aba **`/crons`** (RPC `crons_status`) e tabela `oauth_refresh_log` (mensagens dos crons: `shopee_cron`, `tt_cron`, `omie_diario`, etc.).
 
+## Onde as réguas vivem (mapa)
+
+> **O que este arquivo é:** o CLAUDE.md é **inventário + decisões**, **não** um tratado de réguas. As **réguas fundas** (competência, status, escrow, deduções, pegadinhas de API) **não estão aqui** — vivem no código e no `APRENDIZADOS_SHOPEE_ML.md`. Este mapa só diz **onde cada uma vive**. Vai mexer numa régua? Siga o ponteiro e leia a fonte — não confie neste resumo. (Ponteiros verificados em 28/07/2026.)
+
+- **Réguas ML** (venda `paid + partially_refunded`; competência `date_closed`@SP; custos de billing por `creation_date`/mês-calendário; ciclo 23→22): `APRENDIZADOS_SHOPEE_ML.md` §A3.1, §A3.2, §A3.5 + RPCs `ml_faturamento_ml`, `ml_comissao`, `ml_ads`, `ml_dre_diario`; cron `ml_cron_diario`. Deduções da M.C.: §A3.4.
+- **`sale_fee` e o que NÃO entra** (CFONPN, CVVPRC/CVVFNU, estornos, CXDE): bloco "Billing ML — o que NÃO entra" acima. **BPAD credita o ADS** (ADS líquido): RPC `ml_ads` (comentário em `lib/data/supabase.ts`) + §A3.4.
+- **Réguas Shopee** (bruta = não-cancelados; escrow = repasse desde a venda; ADS/DIFAL fora do escrow, na wallet): `APRENDIZADOS_SHOPEE_ML.md` §B3.2, §B3.4 + RPCs `sp_faturamento`, `sp_repasse`; cron `shopee_cron_diario` (fases lista→escrow→ADS→DIFAL); vazão do escrow em `shopee_fill_escrow`.
+- **TikTok** (guard "não-liquidado" = `total_count=0` + array vazio; taxonomia de retry): função `tt_fill_finance`; cron `tt_cron_diario`; régua de faturamento (pago antes de liquidar) em `tt_faturamento` (ver §Integrações/TikTok).
+- **Omie / DRE de despesas** (Grupo R; classificação projeto→categoria; PIS/COFINS/DIFAL): view `omie_dre_lancamentos` + RPC `omie_dre_grupo_r`; ingestão `omie_fill_despesas`. (Fora do escopo do APRENDIZADOS.)
+- **B2B / Tiny** (discriminador `ecommerce` vazio + natureza `Venda%`): função `b2b_fill_notas`; leitura `b2b_faturamento` (ver §Integrações/B2B).
+- **Pegadinhas de API** (ML billing trunca em silêncio, `detail_sub_types` plural, `document_type` obrigatório, `from_id`+ASC, `CURLOPT_TIMEOUT_MS`; Shopee dedup da wallet, caps de janela): `APRENDIZADOS_SHOPEE_ML.md` §A2.5, §A2.6 e §B2, §B2.1.
+- **Fundações comuns** (HTTP de dentro do Postgres, custódia OAuth no Vault, advisory locks): `APRENDIZADOS_SHOPEE_ML.md` §0.3, §0.4, §0.5.
+
 ## Módulos (ativos vs stub)
 
 **Ativos (verificado em `app/(hub)/`):**
