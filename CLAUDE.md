@@ -13,6 +13,7 @@ E-commerce de **panelas/cookware** (verificado: descrições de itens e custos e
 - Canais (verificado em `lib/data/supabase.ts` `CANAIS`): **Mercado Livre, Shopee, TikTok Shop, Amazon, B2B** (id interno `vendas-internas`, nome de exibição "B2B").
 - Despesas operacionais (abaixo da M.C.) vêm da **Omie** (contas a pagar + conta corrente).
 - Regime tributário: **Lucro Real** (conforme `APRENDIZADOS_SHOPEE_ML.md`; consistente com PIS/COFINS + DIFAL no DRE — ver Integrações/Omie).
+- **Argumento central do projeto:** os fechamentos manuais da equipe são **otimistas em 3 de 3 canais** (sempre na mesma direção). O Hub existe para medir o número real. Ver `LICOES.md`.
 
 ## Stack
 
@@ -73,12 +74,26 @@ Monitorar: aba **`/crons`** (RPC `crons_status`) e tabela `oauth_refresh_log` (m
 
 Padrão comum: OAuth com `refresh_token` **só no Vault**; `*_oauth_state` (linha `id=1`) guarda `access_token`+`expires_at`; HTTP feito de dentro do Postgres; jobs longos usam `SET statement_timeout`. Detalhe histórico (ML/Shopee) em `APRENDIZADOS_SHOPEE_ML.md`.
 
-- **Mercado Livre** — cron `ml-diario`; ADS via `ml-ads-item`/`ml-ads-reconferir` (captura de D-1 às 03:00 vem parcial → reconferência re-puxa); tarifas de fatura extras em `ml_fatura_tarifas` (assessoria CPAC/Minha página CESM → DRE R6) e `ml_full_ccolpa` (coleta pré-agendada → Full/C7). Régua: comissão = `sale_fee` (CVVML). Token: `ml-refresh-token` + Edge Function `ml-token`.
+- **Mercado Livre** — cron `ml-diario`; ADS via `ml-ads-item`/`ml-ads-reconferir` (captura de D-1 às 03:00 vem parcial → reconferência re-puxa); tarifas de fatura extras em `ml_fatura_tarifas` (assessoria CPAC/Minha página CESM → DRE R6) e `ml_full_ccolpa` (coleta pré-agendada → Full/C7). Régua: comissão = `sale_fee` do pedido, que **é composto por `CVVML + CVVPRC + CVVFNU`** (provado pedido a pedido — não é só CVVML). O que **NÃO** entra no cálculo do billing ML: ver bloco "Billing ML — o que NÃO entra" abaixo. Token: `ml-refresh-token` + Edge Function `ml-token`.
 - **Shopee** — cron `shopee-diario` (`shopee_cron_diario`: lista pedidos → detalhe → **escrow** (repasse, fonte de verdade das deduções) → ADS → DIFAL). Escrow re-passa 12h/18h (`shopee-escrow-*`) contra o lag do último dia. ADS reconferido 12h/18h (`shopee-ads-reconferir-*`) — a captura das 03:30 pode falhar/vir parcial.
 - **TikTok Shop** — cron `tt-diario` (`tt_cron_diario`: order search → `tt_fill_finance` by-order). **Régua (alterada 24/07/2026):** `tt_faturamento`/`tt_cmv` contam **pedido pago antes de liquidar** (exclui UNPAID/CANCELLED); receita = `fin_revenue` quando liquidado, senão `payment_total` (estimativa); deduções só de liquidado (nota "X de Y liquidados"). `tt-semanal` re-sincroniza 30 dias (revisão de cancelados).
 - **Amazon** — crons `az-diario`/`az-semanal`.
 - **B2B (Tiny)** — notas fiscais do Tiny (`b2b_notas`/`b2b_itens`). Discriminador do canal B2B (o `/notas` do Tiny devolve TODAS as NFs, marketplace incluso): **`ecommerce` vazio + `tipo` "S" + `naturezaOperacao` "Venda%"** (exclui devolução de compra e remessa/bonificação). Ingestão: `b2b_fill_notas(de, ate, off_start, max_pages)` — em lotes. **NÃO tem cron: ingestão manual** (só `tiny-token-keepalive` existe). (Verificado 28/07/2026.)
 - **Omie (despesas → DRE Grupo R)** — cron `omie-diario` (`omie_fill_despesas`: re-sync completo das contas a pagar) + `omie-semanal` (conta corrente `omie_fill_movimentos` + fornecedores). Classificação do DRE: linha vem do **PROJETO** (`omie_projeto_dre`), fallback **categoria** (`omie_dre_mapa`); include/exclude por categoria. **PIS/COFINS** (2.06.03→I3, 2.06.04→I4) e **DIFAL** (2.06.94→I1) entram acima da M.C.; competência dos impostos = mês do vencimento −1. Detalhe no Notion.
+  - **[EM REVISÃO] PIS/COFINS entra acima da M.C. desde `91b76b3` (23/07/2026).** Supera a decisão anterior de deixar a carga tributária completa (PIS/COFINS/ICMS próprio/IRPJ/CSLL) para o módulo de Impostos futuro. **EM REVISÃO — não alterar sem decisão do Luciano.**
+  - **Processo humano (origem da classificação do DRE):** a **Fernanda concilia** todos os gastos no Omie; o **Diego classifica cada lançamento do Omie numa linha do DRE** (e confere os canais contra os números que já tem). O Hub automatiza essa classificação via `omie_projeto_dre`/`omie_dre_mapa`. ⚠️ A régua da equipe no ML é **caixa/fatura do mês, não competência** — origem de divergência (ver Convenções). Fonte: página "DRE:" do Notion (13/07/2026).
+
+### Billing ML — o que NÃO entra no cálculo (sub_types)
+
+⚠️ **Não recontar.** 3 dos 4 maiores "créditos ignorados" do ML eram dupla contagem ou pass-through. **Achar um crédito é fácil; provar que ainda não está contado é o trabalho** (metodologia em `LICOES.md`).
+
+- **`CFONPN` (taxa de parcelamento) — NÃO entra.** Pass-through net-zero: equivale ao acréscimo que o comprador pagou; receita e taxa se anulam. Ingerir só o custo deixaria a M.C. ~R$154.775 **pessimista**.
+- **`CVVPRC` + `CVVFNU` — NÃO entram.** Já dentro do `sale_fee` (`sale_fee = CVVML + CVVPRC + CVVFNU`, provado pedido a pedido). Entrar = dupla contagem ~R$40k.
+- **`BVVML` / `BFFE` / `BVVPRC` / `BVVFNU` (estornos) — NÃO entram.** A régua `paid + partially_refunded` já trata (venda cancelada sai inteira); creditar o estorno por cima = dupla contagem.
+- **`CXDE` — é FRETE, não fricção.** O ML migrou `CFFE`→`CXDE` ~24/06/2026; o frete do Hub vem da API de shipments. Entrar = +R$61k de dupla contagem.
+- **`BPAD` — ENTRA, credita o ADS.** `ADS líquido = ADS bruto − BPAD` (o gasto vem bruto da API de delivery; o ML bonifica parte na fatura).
+- **`CV` — AGUARDANDO VERIFICAÇÃO.** Confirmar por pedido se está dentro do `sale_fee` **antes** de decidir; **não excluir por materialidade** (ver Pendências).
+- Já tratados (o "bloco 7" do billing): `CFWA`/`CFCBE`→Full, `CPAC`/`CESM`→R6 (`4a60520`), `CCOLPA`→Full/C7 (`fd93041`).
 
 ## Deploy
 
@@ -101,6 +116,11 @@ Padrão comum: OAuth com `refresh_token` **só no Vault**; `*_oauth_state` (linh
 - **`AGENTS.md`** (importado no topo deste arquivo) = regras do **Next 16** para agentes (ler `node_modules/next/dist/docs/` antes de escrever código Next). **`README.md`** é boilerplate do create-next-app (ignorar).
 - **`APRENDIZADOS_SHOPEE_ML.md`** = guia histórico de ingestão **só de ML e Shopee**. Útil para as "pegadinhas" de auth/escrow/billing, mas **incompleto/defasado** — ver divergências abaixo. Não copiar cego.
 
+- **Atribuição por COMMIT, não por memória da conversa.** Esta conversa atravessa vários dias e é compactada — **"esta sessão" e "hoje" NÃO são confiáveis**. Trabalho realizado e autorização se provam por **commit (SHA + data)**. Ao afirmar que algo foi feito ou pedido, citar o SHA e a data; se não achar registro, dizer isso.
+- **A equipe fecha por CICLO DE FATURA; o Hub fecha por MÊS-CALENDÁRIO.** Não é erro de nenhum lado — é régua diferente (a equipe pega o ML por **caixa/fatura**; o Hub por **competência/mês**), e explica a maior parte das divergências.
+- **Toda mudança de régua exige backfill.** Ao mudar uma régua, perguntar: *que dado já ingerido está na régua antiga, e a janela do cron alcança ele?* Se não alcança, backfill **não é opcional** — a mudança da régua da bruta da Shopee (13/07) deixou 01–06/07 órfão, faltando 56% dos pedidos.
+- **`LICOES.md`** = lições de metodologia + achados (detectores CMV/bruta ~68% e "0-cancelados"; 3 estados da honestidade no log; bug "gatilho que nunca re-tenta"; `CDLIT`=Seguidores). Números lá são referência histórica, não verdade viva.
+
 ### Divergências APRENDIZADOS × código (reconciliado 28/07/2026)
 - Cobre **só ML e Shopee**. **Não** contém TikTok, Amazon, B2B/Tiny nem Omie/DRE de despesas (todo o motor de despesas, impostos e DRE consolidado).
 - Descreve TikTok como inexistente; a régua atual do TikTok ("pago antes de liquidar", 24/07/2026) é posterior.
@@ -118,3 +138,9 @@ Padrão comum: OAuth com `refresh_token` **só no Vault**; `*_oauth_state` (linh
 - **Cron de ingestão do B2B/Tiny** (hoje manual via `b2b_fill_notas`).
 - **DAS/IR** (impostos sobre receita além de PIS/COFINS) — ainda não capturados.
 - **Vercel PAUSADA** (ver Deploy) — reautorização do ML bloqueada até despausar.
+- 🔺 **Amazon ADS = R$0 HARDCODED** (`lib/data/supabase.ts`) — junho ok (não anunciou), **julho ERRADO**: o canal explodiu de 7 para 80 pedidos justo quando o ADS foi ligado; a 12–15% de ADS a margem zera/inverte. Exige a **Advertising API** separada (a do SP-API não serve). **Alerta conhecido.**
+- **`CV` (billing ML)** — verificar por pedido se está dentro do `sale_fee` **antes** de excluir; não por materialidade (ver bloco "Billing ML — o que NÃO entra").
+- **Detector de "dia com 0 cancelados" NÃO construído** — pegaria buracos de captura semanas antes (ver `LICOES.md`).
+- **Bug latente:** DIFAL Shopee grava `create_date` em **UTC**, não BRT — cobrança no último dia do mês à noite cai no mês seguinte. Fix: `AT TIME ZONE 'America/Sao_Paulo'`.
+- **Robustez do cron da Amazon nunca auditada** (log honesto/alerta/gatilho) — e `az_settlement` incompleto (3/7; a Amazon posta em 2 settlements com ~9 dias de diferença): candidato ao bug "gatilho que nunca re-tenta".
+- Menores: `seguidores` sem conferência de contagem; root-cause do timeout do `reconferirDia` (ML, paginar por pendentes); tratamento das deduções dos não-concluídos na Shopee (bruta conta todos os não-cancelados, mas dedução só existe para quem tem escrow).
