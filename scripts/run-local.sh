@@ -10,5 +10,6 @@ export PATH="/Users/lucianobrigide/.nvm/versions/node/v24.18.0/bin:$PATH"
 export DATA_SOURCE=supabase
 export PORT=3000
 
-cd /Users/lucianobrigide/Developer/hub-financeiro || exit 1
+# Caminho novo desde 30/07/2026 (pasta com espaços — aspas obrigatórias).
+cd "/Users/lucianobrigide/Brigide/Essenza Di Chef/09_Hub_Financeiro/repo" || exit 1
 exec npm run dev
