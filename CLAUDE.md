@@ -68,6 +68,7 @@ Monitorar: aba **`/crons`** (RPC `crons_status`) e tabela `oauth_refresh_log` (m
 - **Omie / DRE de despesas** (Grupo R; classificação projeto→categoria; PIS/COFINS/DIFAL): view `omie_dre_lancamentos` + RPC `omie_dre_grupo_r`; ingestão `omie_fill_despesas`. (Fora do escopo do APRENDIZADOS.)
 - **B2B / Tiny** (discriminador `ecommerce` vazio + natureza `Venda%`): função `b2b_fill_notas`; leitura `b2b_faturamento` (ver §Integrações/B2B).
 - **Pegadinhas de API** (ML billing trunca em silêncio, `detail_sub_types` plural, `document_type` obrigatório, `from_id`+ASC, `CURLOPT_TIMEOUT_MS`; Shopee dedup da wallet, caps de janela): `APRENDIZADOS_SHOPEE_ML.md` §A2.5, §A2.6 e §B2, §B2.1.
+- **Pegadinhas NOVAS do billing ML (03/08/2026):** (a) o endpoint `/billing/integration/.../details` passou a rate-limitar agressivo (~31/07): HTTP 429 `local_rate_limited` já na 2ª chamada em rajada — todo caller precisa de backoff (nunca retry imediato); (b) **zero silencioso**: sob throttle a API pode responder **200 com `total=0` e `results` vazio** — a mesma query, minutos depois, devolve o total real. `total=0` com linhas já no banco = suspeito, re-ler antes de aceitar. Ambos tratados em `ml_fill_billing`/`ml_api_total` (migration `20260803120001_ml_billing_backoff_429`).
 - **Fundações comuns** (HTTP de dentro do Postgres, custódia OAuth no Vault, advisory locks): `APRENDIZADOS_SHOPEE_ML.md` §0.3, §0.4, §0.5.
 
 ## Módulos (ativos vs stub)
