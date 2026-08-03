@@ -52,12 +52,32 @@ Fontes: docs oficiais ([overview de reporting](https://advertising.amazon.com/AP
 
 ## Item 6 — comparação API × painel (julho/2026)
 
-**NÃO EXECUTADO — bloqueado pela autorização** (sem refresh_token não há chamada). Roteiro pronto para rodar na sequência:
+**EM EXECUÇÃO (03/08/2026).** Autorização concluída às 20:43 UTC (OAuth via Edge `amazon-ads-callback`, refresh_token no Vault, log ok em `oauth_refresh_log`).
 
-1. `GET /v2/profiles` → profileId BR, `currencyCode`, `accountInfo` (gravar em `azads_oauth_state`).
-2. Reports v3 `spCampaigns`+`sbCampaigns`+`sdCampaigns`, `timeUnit DAILY`, `groupBy campaign`, 01–31/07/2026; somar `cost`.
-3. Luciano informa o total de julho que o painel do Amazon Ads mostra na tela (mesma janela, mesmo fuso — conferir o fuso do perfil no painel antes de comparar).
-4. Reportar a diferença em % **por escrito neste documento** antes de qualquer ingestão. Só depois: cron, DRE, card.
+1. ✅ `GET /v2/profiles` → **um único perfil**: profileId `1926422998361173`, countryCode **BR**, currencyCode **BRL**, timezone **America/Sao_Paulo**, seller `A36W7E589F3KMW` "Brigide's Store" (marketplace `A2Q3Y263D00KWC`). Gravado em `azads_oauth_state`.
+2. ⏳ Reports v3 criados 03/08 ~20:45 UTC (`spCampaigns` 81ba5560, `sbCampaigns` ec05f48d, `sdCampaigns` 6753b10b; DAILY, groupBy campaign, 01–31/07) — aguardando a Amazon gerar.
+3. ✅ **Painel (lido ao vivo no console, 03/08, intervalo 1–31 jul 2026, aba Tudo): Custo total R$ 14.125,85** · Cliques 18.927 · ACOS 42,29% · Vendas R$ 33.405,50. Série do gráfico começa em **08/07** (campanhas criadas 07–08/07). As 11 campanhas são todas Sponsored Products (não existem SB/SD); todas pausadas em 03/08.
+   - Observação: o strip do topo da página mostrava Cliques 19.085 vs 18.927 no bloco de desempenho — diferença interna do próprio painel (~0,8%), anotar ao comparar.
+4. ✅ **RESULTADO (03/08/2026 ~18:00 BRT): DIFERENÇA 0,000% — bateu centavo a centavo.**
+
+   | | API (Reports v3) | Painel | Diferença |
+   |---|---|---|---|
+   | Custo julho/2026 | R$ 14.125,85 | R$ 14.125,85 | R$ 0,00 (0,000%) |
+   | Cliques | 18.927 | 18.927 | 0 |
+   | SP / SB / SD | 14.125,85 / 0 / 0 | (só SP existe) | — |
+
+   146 linhas (7 campanhas × dias), gasto de 08 a 31/07. Impressões API 1.791.357 vs strip do painel 1.795.835 (−0,25%; o bloco de desempenho do próprio painel é a referência que bateu). **Gate do item 6 CUMPRIDO — ingestão liberada e executada na sequência.**
+
+**Validações ao vivo do item 5** (corrigindo o que era só documentação): geração do relatório mensal levou ~12–15 min na fila da Amazon (não é instantâneo — por isso a ingestão é fila de 3 estados); granularidade diária confirmada; moeda BRL confirmada no perfil; `cost` do relatório = painel exato, então a diferença relatório × fatura (impostos) fica para quando a primeira fatura fechar — **não bloqueia o DRE**, que usa a mesma régua do painel.
+
+## Ingestão (construída 03/08/2026, após o gate)
+
+- **Tabelas:** `azads_gastos` (dia × campanha × produto; snapshot, `azads_replace_gastos` substitui a janela — merge deixaria valor morto quando a Amazon invalida clique) e `azads_report_jobs` (fila; estados `PENDENTE/INGERIDO/FALHOU` — pendente é estado honesto, relatório na fila da Amazon).
+- **Edge `amazon-ads-ingest`** (modos `pedir`/`colher`/`ciclo`) + RPCs `azads_*` (migration `20260803130001`).
+- **Crons** (migration `20260803150001`): `azads-diario` 03:45 BRT (ciclo: colhe pendentes + pede janela D-3..D-1 — reconferência embutida contra a flutuação de ~72h) e `azads-colher` 04:25 BRT (colheita extra). Log honesto em `ml_cron_log`; catálogo do `/crons` atualizado (azads-diario entra; az-diario perde o "ADS ainda não é capturado").
+- **Backfill julho:** ingerido e conferido — `azads_ads('2026-07') = R$ 14.125,85`, 146 linhas, 3 jobs INGERIDO.
+- **Card/DRE:** `lib/data/supabase.ts` — ADS do card Amazon sai do `azads_ads` (o R$0 hardcoded morreu; "Full" segue 0 até existir Full na Amazon); DRE topo herda via `getDashboard`; gráfico diário via `dre_diario_canais` (ramo az com `full join` — migration `20260803140001`; conferido: soma do gráfico = R$ 14.125,85).
+- **Bug corrigido no caminho:** RPCs `void` retornam 204 sem corpo; o helper da Edge tratava como JSON e estourava (`Unexpected end of JSON input`). Registrado no `ml_cron_log` (a falha ficou logada — honestidade preservada).
 
 ## O que NÃO foi feito (por instrução)
 

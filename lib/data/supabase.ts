@@ -222,6 +222,17 @@ interface CmvAz {
   itens_total: number;
 }
 
+/**
+ * Retorno do RPC azads_ads (gasto Amazon Ads do mês, Reports v3 por campanha).
+ * Validado 03/08/2026: julho pela API = painel centavo a centavo (R$ 14.125,85).
+ * `cost` vem sem os impostos que a fatura da Amazon destaca por lei.
+ */
+interface AdsAzads {
+  ads_total_mes: number;
+  dias_com_dado: number;
+  ultima_atualizacao: string | null;
+}
+
 /** Retorno do RPC sp_faturamento (bruta Shopee do mês, régua COMPLETED). */
 interface FatSp {
   faturamento_bruto: number;
@@ -487,6 +498,8 @@ export const supabaseProvider: DataProvider = {
     const azFrete = await rpc<FreteAz>("az_frete_mes", { p_month: mes });
     // Amazon — CMV (custo × quantidade dos itens vendidos, via ml_custo_produto).
     const azCmv = await rpc<CmvAz>("az_cmv", { p_month: mes });
+    // Amazon — ADS (azads_gastos via Advertising API; ingestão azads-diario/colher).
+    const azAds = await rpc<AdsAzads>("azads_ads", { p_month: mes });
     // Shopee — bruta (régua COMPLETED, competência create_time BRT).
     const spFat = await rpc<FatSp>("sp_faturamento", { p_month: mes });
     // Shopee — CMV (custo × qty, unaccent no JOIN com ml_custo_produto).
@@ -761,7 +774,16 @@ export const supabaseProvider: DataProvider = {
               if (label === "Comissão") return { label, valor: azCom.comissao_total || null, nota: comNota };
               if (label === "Frete") return { label, valor: azFrete.frete_total || null, nota: freteNota };
               if (label === "CMV") return { label, valor: azCmvVal, nota: cmvNota };
-              if (label === "ADS" || label === "Full") return { label, valor: 0 };
+              // ADS real via Advertising API (azads_gastos). 0 é zero de verdade:
+              // mês sem linha = Amazon não registrou gasto (validado vs painel 03/08/2026).
+              if (label === "ADS") {
+                return {
+                  label,
+                  valor: Math.round(azAds.ads_total_mes * 100) / 100,
+                  nota: azAds.dias_com_dado > 0 ? `${azAds.dias_com_dado} dias com gasto` : undefined,
+                };
+              }
+              if (label === "Full") return { label, valor: 0 };
               return { label, valor: null };
             });
           const totalDeducoesAz = deducoesAz.reduce((s, d) => s + (d.valor ?? 0), 0);
