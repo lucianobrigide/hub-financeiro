@@ -41,6 +41,12 @@ E-commerce de **panelas/cookware** (verificado: descrições de itens e custos e
 - **DRE:** topo (Receita → M.C.) = `getDreTopo` (reusa `getDashboard`, consolida acima da M.C.); **Grupo R** (despesas) = `omie_dre_grupo_r` / `_detalhe` / `omie_dre_itens` (drill-down 3 níveis). Fonte do Grupo R: view `omie_dre_lancamentos`.
 - **Saúde dos crons:** `crons_status`.
 
+### CMV com vigência temporal (03/08/2026)
+- `ml_custo_produto` tem **vigência por linha**: `[vigencia_inicio, vigencia_fim)`, `fim NULL` = vigente; PK `(sku, vigencia_inicio)` + constraint EXCLUDE (btree_gist) impede vigências sobrepostas do mesmo SKU. Linhas originais: `vigencia_inicio = 2000-01-01`.
+- **Alteração de custo NUNCA é UPDATE no valor** — trigger bloqueia. Fluxo: `cmv_alterar_custo(sku, novo_custo, data_vigencia)` fecha a linha vigente e insere a nova (função revogada de anon/authenticated; rodar como service_role).
+- As 9 RPCs que leem CMV (`ml_cmv`, `ml_cmv_cobertura`, `sp_cmv`, `tt_cmv`, `az_cmv`, `b2b_cmv`, `ml_dre_diario`, `dre_diario_canais`, `dre_sku`) fazem **range join ancorado na data de competência** de cada canal (ML `ml_pedidos.data`; Shopee/TT `create_time`@SP; AZ `purchase_date`; B2B `data_emissao`) — custo novo só afeta vendas de `vigencia_inicio` em diante; meses fechados não mudam.
+- **Não-regressão:** `scripts/cmv-regression/` — `snapshot.mjs` captura as 9 RPCs × últimos 6 meses + margem por canal×mês; `diff.mjs` compara dois snapshots (meses fechados têm que bater exato). Rollback completo em `scripts/cmv-regression/rollback_cmv_vigencia.sql`. Migrations `20260803190001/190002`.
+
 ### pg_cron
 **24 jobs ativos (verificado 03/08/2026).** Horários no cron são **UTC** (BRT = −3h). Ingestão por canal + keepalive de token + reconferências:
 ```
