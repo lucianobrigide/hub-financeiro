@@ -53,7 +53,13 @@ export async function GET(request: Request) {
         Authorization: `Bearer ${serviceRoleKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ p_code: code }),
+      body: JSON.stringify({
+        p_code: code,
+        // O redirect_uri da troca TEM que ser o mesmo do authorize. Esta rota é o
+        // caminho alternativo (Vercel); o principal é a Edge amazon-ads-callback.
+        p_redirect_uri:
+          "https://hub-financeiro-omega.vercel.app/api/auth/callback-amazon-ads",
+      }),
     });
     const result = await resp.json().catch(() => null);
 

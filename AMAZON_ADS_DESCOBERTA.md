@@ -10,19 +10,27 @@ Custódia no padrão ML/az, prefixo **`azads_`** (o `az_` é da SP-API — outra
 - **Diferença deliberada vs ML:** a troca do authorization code roda **dentro do Postgres** (`azads_exchange_code`), padrão TikTok/Shopee — o client_secret nunca vai para env da Vercel. A rota `app/api/auth/callback-amazon-ads/route.ts` só repassa o `code` (troca imediata; falha ALTA com JSON 502 + motivo, e log no `oauth_refresh_log`). Exige `state=azads-hubfin`.
 - **Edge Function `amazon-ads-token`** (deployada, `verify_jwt=false`, auth por `x-api-key` validada no Vault): único gateway de leitura; cache com folga de 10 min; refresh delegado ao RPC atômico. Smoke test 30/07: sem chave → 401; chave errada → 401; chave correta → **409 `refresh_token_not_seeded`** (correto: cadeia ainda não autorizada) com log honesto gravado.
 
-### Bloqueio para autorizar (ação do Luciano)
+### Como autorizar (ação do Luciano) — ATUALIZADO 03/08: plano B ativo
 
-1. **Vercel segue PAUSADA** — produção responde **HTTP 402** (testado 30/07 20:30 UTC). O callback `https://hub-financeiro-omega.vercel.app/api/auth/callback-amazon-ads` não responde até despausar. Mesmo bloqueio já documentado para reautorizar o ML.
-2. Despausada a Vercel (e com o deploy do commit desta sessão no ar), abrir:
+**03/08/2026:** a Vercel está pausada por **estouro de cota do plano free (3M/1M edge requests)** e só religa pagando upgrade — não vale a pena só para um callback. O **plano B virou o caminho principal**: callback como Edge Function **`amazon-ads-callback`** (padrão `tt-oauth-callback`, independe da Vercel), deployado e testado ponta a ponta em 03/08 (code falso atravessou até a Amazon e falhou alto com `invalid_request`). Migration `20260803120001_azads_exchange_redirect_param`: `azads_exchange_code` ganhou `p_redirect_uri` com allowlist das duas URLs; a rota da Vercel continua no repo como alternativa se a conta um dia voltar.
+
+Passos:
+
+1. Em [developer.amazon.com](https://developer.amazon.com) → **Login with Amazon** → security profile `amzn1.application.e5abd09d08fd447d9ada147e641a1e37` → **Web Settings** → **Edit** → adicionar em **Allowed Return URLs** (sem apagar a existente):
 
    ```
-   https://www.amazon.com/ap/oa?client_id=amzn1.application-oa2-client.3ded0d38c5404a8fb3c24f33c761914a&scope=advertising%3A%3Acampaign_management&response_type=code&redirect_uri=https%3A%2F%2Fhub-financeiro-omega.vercel.app%2Fapi%2Fauth%2Fcallback-amazon-ads&state=azads-hubfin
+   https://klwczmapuupensozxbsr.supabase.co/functions/v1/amazon-ads-callback
    ```
 
-   logado na conta que administra o Amazon Ads. Sucesso = redirect para `/?auth=success&src=amazon-ads`; falha = JSON com o motivo na tela.
-3. *Plano B se a Vercel continuar pausada:* cadastrar na app LwA uma Allowed Return URL de Edge Function (padrão `tt-oauth-callback`, que não depende da Vercel) e ajustar o `v_redirect` do `azads_exchange_code`. Não implementado — decisão do Luciano.
+2. Logado na conta que administra o Amazon Ads, abrir:
 
-Pré-requisito já satisfeito na Vercel: `SUPABASE_SERVICE_ROLE_KEY` (o callback do ML já usa).
+   ```
+   https://www.amazon.com/ap/oa?client_id=amzn1.application-oa2-client.3ded0d38c5404a8fb3c24f33c761914a&scope=advertising%3A%3Acampaign_management&response_type=code&redirect_uri=https%3A%2F%2Fklwczmapuupensozxbsr.supabase.co%2Ffunctions%2Fv1%2Famazon-ads-callback&state=azads-hubfin
+   ```
+
+   Sucesso = JSON `"Amazon Ads autorizada..."` na tela; falha = JSON com o motivo (também em `oauth_refresh_log`).
+
+*(Anomalia registrada de passagem: 3M de edge requests num app sem uso em produção sugere tráfego de bots na URL pública — pagar upgrade não resolveria isso.)*
 
 ## Item 5 — o que a API entrega de investimento (POR DOCUMENTAÇÃO; validar ao vivo na Fase 2)
 
