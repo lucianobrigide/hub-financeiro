@@ -1,8 +1,9 @@
 "use client";
 
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useState, type ChangeEvent } from "react";
 import { fetchDreCompletoAction, fetchDreItensAction } from "@/app/actions";
 import type { DreItem } from "@/lib/data/types";
+import { useDashboard } from "./DashboardProvider";
 import { COLORS, brl, pct } from "./ui";
 
 /**
@@ -86,24 +87,17 @@ export const DRE_STRUCTURE: DreRow[] = [
   r("Resultado Líquido", "total", { op: "=" }),
 ];
 
-function mesReferencia(): string {
-  // Último mês FECHADO (mês anterior ao corrente), fuso SP.
-  const hojeSP = new Date().toLocaleDateString("en-CA", {
-    timeZone: "America/Sao_Paulo",
-  });
-  const [y, m] = hojeSP.split("-").map(Number);
-  const ref = new Date(Date.UTC(y, m - 2, 1)); // m-2: mês anterior (m é 1-based)
-  return ref
-    .toLocaleDateString("pt-BR", { month: "long", year: "numeric", timeZone: "UTC" })
-    .replace(/^\w/, (c) => c.toUpperCase());
+/** 'YYYY-MM' do mês corrente (fuso SP) — todo mês anterior a ele está fechado. */
+function mesCorrenteValue(): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" }).slice(0, 7);
 }
 
-/** 'YYYY-MM' do último mês fechado (fuso SP) — chave que os RPCs esperam. */
-function mesReferenciaValue(): string {
-  const hojeSP = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
-  const [y, m] = hojeSP.split("-").map(Number);
-  const ref = new Date(Date.UTC(y, m - 2, 1));
-  return `${ref.getUTCFullYear()}-${String(ref.getUTCMonth() + 1).padStart(2, "0")}`;
+/** Rótulo pt-BR ("Junho 2026") a partir de 'YYYY-MM' — fallback quando o mês não está na lista. */
+function labelMes(value: string): string {
+  const [y, m] = value.split("-").map(Number);
+  return new Date(Date.UTC(y, (m ?? 1) - 1, 1))
+    .toLocaleDateString("pt-BR", { month: "long", year: "numeric", timeZone: "UTC" })
+    .replace(/^\w/, (c) => c.toUpperCase());
 }
 
 function Cell({ value, render }: { value: number | null; render: (v: number) => string }) {
@@ -118,8 +112,14 @@ function Cell({ value, render }: { value: number | null; render: (v: number) => 
 }
 
 export function DreTable() {
-  const mes = mesReferencia();
-  const mesValue = mesReferenciaValue();
+  // Meses fechados (< mês corrente), mais recente primeiro — lista vem do provider do hub.
+  // O DRE tem seletor próprio porque a régua dele é "só mês fechado"; o seletor global
+  // do topo inclui o mês em andamento e não vale aqui.
+  const { months } = useDashboard();
+  const mesesFechados = months.filter((m) => m.value < mesCorrenteValue());
+  const [mesSelecionado, setMesSelecionado] = useState<string | null>(null);
+  const mesValue = mesSelecionado ?? mesesFechados[0]?.value ?? "";
+  const mes = mesesFechados.find((m) => m.value === mesValue)?.label ?? (mesValue ? labelMes(mesValue) : "—");
   // DRE do mês fechado: topo (Hub, acima da MC, por rótulo) + subcategorias do Grupo R
   // (Omie, por código). Clique numa linha com detalhe p/ abrir/fechar.
   const [topo, setTopo] = useState<Record<string, number>>({});
@@ -130,7 +130,12 @@ export function DreTable() {
   const [itens, setItens] = useState<Record<string, DreItem[]>>({});
 
   useEffect(() => {
+    if (!mesValue) return;
     let ativo = true;
+    // Troca de mês: zera o drill-down (o cache de itens é por linha|categoria, sem mês).
+    setAberto(new Set());
+    setAbertoItem(new Set());
+    setItens({});
     fetchDreCompletoAction(mesValue).then(({ topo: t, detalhe: rows }) => {
       if (!ativo) return;
       setTopo(t ?? {});
@@ -206,6 +211,26 @@ export function DreTable() {
 
   return (
     <div className="overflow-x-auto">
+      <div className="mb-3 flex items-center justify-end gap-3">
+        <span className="text-xs" style={{ color: COLORS.muted }}>
+          Mês fechado
+        </span>
+        <select
+          aria-label="Selecionar mês fechado"
+          value={mesValue}
+          onChange={(e: ChangeEvent<HTMLSelectElement>) => setMesSelecionado(e.target.value)}
+          disabled={mesesFechados.length === 0}
+          className="rounded-lg border px-3 py-2 text-sm font-medium outline-none disabled:opacity-60"
+          style={{ background: COLORS.panel, borderColor: COLORS.panelBorder, color: COLORS.white }}
+        >
+          {mesesFechados.length === 0 && <option value="">Sem mês fechado</option>}
+          {mesesFechados.map((m) => (
+            <option key={m.value} value={m.value} style={{ background: COLORS.panel }}>
+              {m.label}
+            </option>
+          ))}
+        </select>
+      </div>
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr style={{ color: COLORS.muted }}>
