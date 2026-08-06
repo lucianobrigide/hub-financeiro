@@ -34,6 +34,8 @@ function ultimaExecFrase(c: CronInfo): string {
   const h = c.horas_atras;
   const quanto =
     h == null ? "" : h < 1 ? " (há minutos)" : h < 48 ? ` (há ${Math.round(h)}h)` : ` (há ${Math.round(h / 24)} dias)`;
+  if (c.pg_status === "failed" && c.recuperado_em)
+    return `tentou rodar ${quando}${quanto} mas FALHOU — recuperado às ${c.recuperado_em}`;
   if (c.pg_status === "failed") return `tentou rodar ${quando}${quanto} mas FALHOU`;
   // via_log: o agendador já não guarda o histórico (retém poucos dias), então a data
   // vem do log de dados — mostra isso, pra não parecer confirmação do agendador.
@@ -86,6 +88,13 @@ function CronCard({ c }: { c: CronInfo }) {
           {ultimaExecFrase(c)}
           {c.duracao_seg != null && c.pg_status === "succeeded" ? ` · ${c.duracao_seg}s` : ""}
         </div>
+        {/* Falha recente mesmo com run ok depois — o incidente não some do painel. */}
+        {(c.falhas_24h ?? 0) > 0 && c.ultima_falha && (
+          <div className="mt-1 text-[10px]" style={{ color: "#ffb84d" }}>
+            {c.falhas_24h === 1 ? "1 falha" : `${c.falhas_24h} falhas`} nas últimas 24h —{" "}
+            {c.ultima_falha}
+          </div>
+        )}
         <div className="mt-1 flex items-center gap-1.5">
           <span className="text-[10px]" style={{ color: conf.cor }}>
             {conf.tag}

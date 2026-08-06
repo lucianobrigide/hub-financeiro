@@ -271,6 +271,13 @@ export interface CronInfo {
   ultima_exec: string | null;
   horas_atras: number | null;
   duracao_seg: number | null;
+  /** Falhas no pg_cron nas últimas 24h (mesmo que o último run tenha sido ok). */
+  falhas_24h?: number;
+  /** Última falha nas 24h: "05/08 03:30 — mensagem" ou null. */
+  ultima_falha?: string | null;
+  /** Se o último run falhou mas o log de dados registrou sucesso depois
+   *  (ex.: re-execução manual): "05/08 10:54" ou null. */
+  recuperado_em?: string | null;
 }
 
 /** Payload da página de Crons. */
@@ -280,5 +287,7 @@ export interface CronsStatus {
   verdes: number;
   amarelos: number;
   vermelhos: number;
+  /** Total de falhas no pg_cron nas últimas 24h (todas as automações). */
+  falhas_24h?: number;
   crons: CronInfo[];
 }
