@@ -78,6 +78,16 @@ Monitorar: aba **`/crons`** (RPC `crons_status`) e tabela `oauth_refresh_log` (m
 - **Pegadinhas NOVAS do billing ML (03/08/2026):** (a) o endpoint `/billing/integration/.../details` passou a rate-limitar agressivo (~31/07): HTTP 429 `local_rate_limited` já na 2ª chamada em rajada — todo caller precisa de backoff (nunca retry imediato); (b) **zero silencioso**: sob throttle a API pode responder **200 com `total=0` e `results` vazio** — a mesma query, minutos depois, devolve o total real. `total=0` com linhas já no banco = suspeito, re-ler antes de aceitar. Ambos tratados em `ml_fill_billing`/`ml_api_total` (migration `20260803120001_ml_billing_backoff_429`).
 - **Fundações comuns** (HTTP de dentro do Postgres, custódia OAuth no Vault, advisory locks): `APRENDIZADOS_SHOPEE_ML.md` §0.3, §0.4, §0.5.
 
+## Mudanças de 05/08/2026 (sessão de conferência do DRE — Luciano)
+
+- **Crons diários resilientes:** cada fase/passo roda em subtransação com log de falha próprio — um timeout não descarta mais o dia inteiro (incidente shopee-diario 05/08, SSL timeout + rollback). Shopee `20260805140001`; ML/TT/AZ `150001`. `crons_status` ganhou `falhas_24h`/`ultima_falha`/`recuperado_em` e lê falhas de fase dos logs de app (`140002`/`150002`); UI em `CronsBoard.tsx`.
+- **Omie AP — competência padrão = `data_entrada`** (a competência que o financeiro mantém na Omie), fallback emissão/vencimento — `200002`. Regras específicas prevalecem: PIS/COFINS (venc−1, inalterada); **Frete Flex** (projeto `11028072487` → C2, forca_inclusao; quinzena: doc "2ª%" = emissão−1 mês, "1ª" = mês da NF — régua do Luciano domina sobre a entrada) `190001`/`200001`; **parcelamento DIFAL BA** (fornecedor `10705160510`: sem categoria → assume 2.06.94/I1; competência = vencimento; entrada jun R$16k, nada em jul, 59×R$15.652,51 de 20/08/2026 a jun/2031) `160002`/`190002`; CABFORT parcelas (inalterada).
+- **Órfãos Omie (soft-delete):** título que some da ListarContasPagar é carimbado em `ausente_desde` e sai do DRE (nunca deletado; volta se reaparecer) — `160001`. Causa raiz: baixas/renegociações re-lançam títulos com id novo.
+- **`forca_inclusao` por projeto** (lançamento entra no DRE mesmo com categoria excluída): ligado SÓ em "Fretes Flex". Foi testado em "Marketing & Tráfego" e **REVERTIDO em ~30min** (dupla contagem ~R$294k: boletos de ads de plataforma usam esse projeto) — `180001` + revert `180002`. ⚠️ Nunca ligar sem auditar TODOS os lançamentos do projeto antes.
+- **Mapa:** +7 categorias (Multas, Aluguel Equip., Refeições, Postais, Mat. Consumo, Seguros→R5, Viagens→R19) `170001`/`190001`. **GDB = folha terceirizada (mão de obra), RECONFIRMADA em R3** pelo Luciano (obs em 2.10.93; não mudar de linha sem nova decisão).
+- **DRE UI:** coluna AV% calculada (% da Receita Bruta) em todos os níveis do drill-down (`DreTable.tsx`).
+- **PENDENTE — regime de adiantamentos (aguardando Fernanda):** adiantamento 2.08.01 com projeto de linha = despesa no mês do pagamento; NF de baixa com projeto **"Baixa de Adiantamento"** = neutra no DRE. Procedimento: `../PROCEDIMENTO_FERNANDA_ADIANTAMENTOS.md`. ⚠️ **NÃO ligar as regras antes** de a Fernanda criar o projeto e marcar o backlog jan/2026→hoje (senão o histórico dobra). Diferenças por retenção (ISS etc.) são esperadas; DRE contará o líquido pago.
+
 ## Módulos (ativos vs stub)
 
 **Ativos (verificado em `app/(hub)/`):**
