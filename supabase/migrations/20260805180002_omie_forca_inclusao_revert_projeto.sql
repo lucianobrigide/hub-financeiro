@@ -1,0 +1,12 @@
+-- REVERT do flag no projeto Marketing & Tráfego (05/08/2026, ~30 min após 20260805180001).
+-- (Aplicada no banco como `omie_forca_inclusao_revert_projeto`; arquivo criado a posteriori
+-- para manter repo ↔ banco em sincronia.)
+--
+-- A auditoria da regra recém-criada mostrou que o projeto "Marketing & Tráfego"
+-- também é usado nos boletos de ads DAS PLATAFORMAS (Publicidade ML ~R$ 237k/mês,
+-- carteira Shopee Ads, AMS/afiliados Shopee, intermediação, armazenagem Full),
+-- todos já capturados por API → o flag causou ~R$ 294k de dupla contagem no C1
+-- de julho. O MECANISMO forca_inclusao permanece (coluna + funções); ficou ligado
+-- depois apenas no projeto "Fretes Flex" (20260805190001), cujo discriminador é
+-- limpo (só transportadoras).
+UPDATE public.omie_projeto_dre SET forca_inclusao = false WHERE forca_inclusao;
