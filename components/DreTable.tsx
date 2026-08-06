@@ -20,14 +20,12 @@ interface DreRow {
   tag?: "F" | "V"; // Fixo / Variável (Grupo R)
   kind: Kind;
   valor: number | null; // R$ do mês de referência
-  av: number | null; // Análise Vertical (% da Receita Bruta)
 }
 
 const r = (label: string, kind: Kind, extra: Partial<DreRow> = {}): DreRow => ({
   label,
   kind,
   valor: null,
-  av: null,
   ...extra,
 });
 
@@ -209,6 +207,11 @@ export function DreTable() {
     });
   }
 
+  // AV (Análise Vertical) — cada linha como % da Receita Bruta do mês.
+  const receitaBruta = display[0];
+  const av = (v: number | null): number | null =>
+    v == null || receitaBruta == null || receitaBruta <= 0 ? null : (v / receitaBruta) * 100;
+
   return (
     <div className="overflow-x-auto">
       <div className="mb-3 flex items-center justify-end gap-3">
@@ -315,8 +318,14 @@ export function DreTable() {
                   >
                     <Cell value={valor} render={brl} />
                   </td>
-                  <td className="py-1.5 text-right tabular-nums" style={{ color: COLORS.muted }}>
-                    <Cell value={row.av} render={pct} />
+                  <td
+                    className="py-1.5 text-right tabular-nums"
+                    style={{
+                      color: isTotal || isBase ? COLORS.white : COLORS.muted,
+                      fontWeight: isTotal || isBase ? 700 : 400,
+                    }}
+                  >
+                    <Cell value={av(valor)} render={pct} />
                   </td>
                 </tr>
                 {estaAberto &&
@@ -341,7 +350,9 @@ export function DreTable() {
                           <td className="py-1 text-right text-[11px] tabular-nums" style={{ color: COLORS.muted }}>
                             {brl(f.valor)}
                           </td>
-                          <td />
+                          <td className="py-1 text-right text-[11px] tabular-nums" style={{ color: COLORS.muted }}>
+                            {av(f.valor) != null ? pct(av(f.valor)!) : ""}
+                          </td>
                         </tr>
                         {itemAberto &&
                           (lista === undefined ? (
@@ -369,7 +380,9 @@ export function DreTable() {
                                 <td className="py-1 text-right text-[10px] tabular-nums" style={{ color: COLORS.muted }}>
                                   {brl(it.valor)}
                                 </td>
-                                <td />
+                                <td className="py-1 text-right text-[10px] tabular-nums" style={{ color: COLORS.muted, opacity: 0.7 }}>
+                                  {av(it.valor) != null ? pct(av(it.valor)!) : ""}
+                                </td>
                               </tr>
                             ))
                           ))}
