@@ -12,6 +12,8 @@ const DEDUCAO_LABELS_DIFAL = ["Comissão", "Frete", "ADS", "Full", "Afiliados", 
 const DEDUCAO_LABELS_SHOPEE = ["Comissão e Fretes reais cobrados", "ADS", "Full", "Afiliados", "DIFAL", "CMV", "Custo Devoluções"];
 /** TikTok: "Taxas" é linha própria (sfp_service_fee + fee_per_item); sem "Full". */
 const DEDUCAO_LABELS_TT = ["Comissão", "Taxas", "Frete", "ADS", "Afiliados", "CMV"];
+/** SHEIN (MVP): só CMV tem fonte real; demais deduções chegam na fase 100% (API de settlement). */
+const DEDUCAO_LABELS_SHEIN = ["Comissão", "Frete", "ADS", "Afiliados", "CMV"];
 
 /** DRE de uma plataforma sem dado (tudo null) — UI mostra "sem dados". */
 function dreVazio(nome: string): PlataformaDre {
@@ -57,6 +59,7 @@ const CANAIS = [
   { id: "shopee", nome: "Shopee", key: "sp" },
   { id: "tiktok", nome: "TikTok Shop", key: "tt" },
   { id: "amazon", nome: "Amazon", key: "az" },
+  { id: "shein", nome: "SHEIN", key: "sh" },
   { id: "vendas-internas", nome: "B2B", key: "b2b" },
 ] as const;
 
@@ -217,6 +220,19 @@ interface FreteAz {
 
 /** Retorno do RPC az_cmv (custo × quantidade dos itens vendidos). */
 interface CmvAz {
+  cmv_total: number;
+  itens_com_custo: number;
+  itens_total: number;
+}
+
+/** Retorno do RPC shein_faturamento (bruta SHEIN do mês — MVP, régua a fechar na fase 100%). */
+interface FatShein {
+  faturamento_bruto: number;
+  total_pedidos: number;
+}
+
+/** Retorno do RPC shein_cmv (custo × quantidade, via ml_custo_produto com vigência). */
+interface CmvShein {
   cmv_total: number;
   itens_com_custo: number;
   itens_total: number;
@@ -519,6 +535,10 @@ export const supabaseProvider: DataProvider = {
     // créditos que a decomposição bruta não vê (subsídio de frete, reembolso de voucher).
     // Base da linha "Comissão e Fretes reais cobrados" (= bruta − repasse − afiliados).
     const spRepasse = await rpc<RepasseSp>("sp_repasse", { p_month: mes });
+    // SHEIN — bruta (MVP: integração de credencial pronta; ingestão de pedidos na fase 100%).
+    const shFat = await rpc<FatShein>("shein_faturamento", { p_month: mes });
+    // SHEIN — CMV (shein_itens × ml_custo_produto com vigência).
+    const shCmv = await rpc<CmvShein>("shein_cmv", { p_month: mes });
     // B2B — bruta (NFs por data_emissao, valor_total com IPI).
     const b2bFat = await rpc<FatB2b>("b2b_faturamento", { p_month: mes });
     // B2B — CMV (cruza b2b_itens × ml_custo_produto).
@@ -563,12 +583,14 @@ export const supabaseProvider: DataProvider = {
       (spFat.faturamento_bruto ?? 0) +   // Shopee (líquido = bruto)
       (ttFat.faturamento_liquido ?? 0) + // TikTok (líquido)
       azLiquido +                        // Amazon (bruto − refund)
+      (shFat.faturamento_bruto ?? 0) +   // SHEIN (MVP: líquido = bruto)
       (b2bFat.faturamento_bruto ?? 0);   // B2B (líquido = bruto)
     const totalPedidos =
       (a.totalPedidosValidos ?? 0) +     // ML: paid + partially_refunded
       (spFat.total_pedidos ?? 0) +       // Shopee: COMPLETED
       (ttFat.total_pedidos ?? 0) +       // TikTok: liquidado
       (azFat.total_pedidos ?? 0) +       // Amazon: Shipped+Unshipped
+      (shFat.total_pedidos ?? 0) +       // SHEIN: não-cancelados (MVP)
       (b2bFat.total_notas ?? 0);         // B2B: NFs emitidas
     const ticketMedio = totalPedidos > 0 ? totalVenda / totalPedidos : 0;
 
@@ -603,6 +625,7 @@ export const supabaseProvider: DataProvider = {
         { nome: "Shopee", valor: spFat.faturamento_bruto || null },
         { nome: "Tik Tok", valor: ttFat.faturamento_bruto || null },
         { nome: "Amazon", valor: azFat.faturamento_bruto || null },
+        { nome: "SHEIN", valor: shFat.faturamento_bruto || null },
         { nome: "B2B", valor: b2bFat.faturamento_bruto || null },
       ],
       // Card ML: topo REAL + as 6 deduções (Comissão/Frete/ADS/Full/CMV reais; Afiliados=0)
@@ -800,6 +823,35 @@ export const supabaseProvider: DataProvider = {
           };
         })(),
         (() => {
+          // SHEIN (MVP): topo real (bruta da API quando a ingestão ligar) + CMV real.
+          // REGRA DURA: comissão/frete/ADS ainda SEM fonte automática → null (nunca
+          // estimado) e M.C. suprimida; mostra-se margem bruta (bruta − CMV) + nota.
+          const shBruto = shFat.faturamento_bruto || null;
+          const shLiquido = shBruto;
+          const shCmvVal = shCmv.itens_total > 0 ? shCmv.cmv_total : null;
+          const cmvNota = shCmv.itens_total > 0
+            ? `${shCmv.itens_com_custo} de ${shCmv.itens_total} com custo`
+            : undefined;
+          const deducoesSh = DEDUCAO_LABELS_SHEIN.map((label) =>
+            label === "CMV"
+              ? { label, valor: shCmvVal, nota: cmvNota }
+              : { label, valor: null, nota: label === "Comissão" ? "aguardando fase 100%" : undefined },
+          );
+          const margem = shLiquido != null && shCmvVal != null
+            ? Math.round((shLiquido - shCmvVal) * 100) / 100
+            : null;
+          return {
+            ...dreVazio("SHEIN"),
+            faturamentoBruto: shBruto,
+            cancelDevolucoes: shBruto != null ? 0 : null,
+            faturamentoLiquido: shLiquido,
+            deducoes: deducoesSh,
+            margemBruta: margem,
+            mc: null,
+            mcNota: shBruto != null ? "MVP — deduções na fase 100%" : null,
+          };
+        })(),
+        (() => {
           const viBruto = b2bFat.faturamento_bruto || null;
           const viLiquido = viBruto;
           const viCmvVal = b2bCmv.itens_total > 0 ? b2bCmv.cmv_total : null;
@@ -876,6 +928,7 @@ export const supabaseProvider: DataProvider = {
       sp: mcDe("Shopee"),
       tt: mcDe("TikTok Shop"),
       az: mcDe("Amazon"),
+      sh: mcDe("SHEIN"),
       b2b: mcDe("B2B"),
     };
     const seriePorKey: Record<string, SerieDiariaItem[]> = {};
@@ -919,6 +972,7 @@ export const supabaseProvider: DataProvider = {
       sp: spFat.total_pedidos ?? 0,
       tt: ttFat.total_pedidos ?? 0,
       az: azFat.total_pedidos ?? 0,
+      sh: shFat.total_pedidos ?? 0,
       b2b: b2bFat.total_notas ?? 0,
     };
     result.porCanal = CANAIS.map((cm) => {
@@ -983,6 +1037,7 @@ function vazio(): DashboardData {
       { nome: "Shopee", valor: null },
       { nome: "Tik Tok", valor: null },
       { nome: "Amazon", valor: null },
+      { nome: "SHEIN", valor: null },
       { nome: "B2B", valor: null },
     ],
     plataformasDre: [
@@ -990,6 +1045,7 @@ function vazio(): DashboardData {
       dreVazio("Shopee"),
       dreVazio("TikTok Shop"),
       dreVazio("Amazon"),
+      dreVazio("SHEIN"),
       dreVazio("B2B"),
     ],
     vendasDiarias: [],
