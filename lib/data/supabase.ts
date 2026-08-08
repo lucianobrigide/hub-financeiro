@@ -12,8 +12,10 @@ const DEDUCAO_LABELS_DIFAL = ["Comissão", "Frete", "ADS", "Full", "Afiliados", 
 const DEDUCAO_LABELS_SHOPEE = ["Comissão e Fretes reais cobrados", "ADS", "Full", "Afiliados", "DIFAL", "CMV", "Custo Devoluções"];
 /** TikTok: "Taxas" é linha própria (sfp_service_fee + fee_per_item); sem "Full". */
 const DEDUCAO_LABELS_TT = ["Comissão", "Taxas", "Frete", "ADS", "Afiliados", "CMV"];
-/** SHEIN (MVP): só CMV tem fonte real; demais deduções chegam na fase 100% (API de settlement). */
-const DEDUCAO_LABELS_SHEIN = ["Comissão", "Frete", "ADS", "Afiliados", "CMV"];
+/** SHEIN: deduções REAIS do order-detail (cupons/promos, comissão, taxa de serviço de
+ *  fulfillment) — decomposição bate centavo a centavo com o estimatedGrossIncome da API
+ *  (validado 07/08/2026). Valores do PEDIDO; conciliação com settlement é fase futura. */
+const DEDUCAO_LABELS_SHEIN = ["Cupons e Promoções", "Comissão", "Taxa de serviço", "CMV"];
 
 /** DRE de uma plataforma sem dado (tudo null) — UI mostra "sem dados". */
 function dreVazio(nome: string): PlataformaDre {
@@ -225,10 +227,18 @@ interface CmvAz {
   itens_total: number;
 }
 
-/** Retorno do RPC shein_faturamento (bruta SHEIN do mês — MVP, régua a fechar na fase 100%). */
+/** Retorno do RPC shein_faturamento (bruta = Σ produto_total, status ≠ 6/8/9; competência payment_time BRT). */
 interface FatShein {
   faturamento_bruto: number;
+  cancel_devolucoes: number;
   total_pedidos: number;
+}
+
+/** Retorno do RPC shein_deducoes (comissão, taxa de fulfillment e cupons/promos REAIS do order-detail). */
+interface DedShein {
+  comissao: number;
+  taxa_servico: number;
+  cupons_promos: number;
 }
 
 /** Retorno do RPC shein_cmv (custo × quantidade, via ml_custo_produto com vigência). */
@@ -535,9 +545,11 @@ export const supabaseProvider: DataProvider = {
     // créditos que a decomposição bruta não vê (subsídio de frete, reembolso de voucher).
     // Base da linha "Comissão e Fretes reais cobrados" (= bruta − repasse − afiliados).
     const spRepasse = await rpc<RepasseSp>("sp_repasse", { p_month: mes });
-    // SHEIN — bruta (MVP: integração de credencial pronta; ingestão de pedidos na fase 100%).
+    // SHEIN — bruta (order-detail; competência payment_time BRT; exclui reembolso/danificado/recusado).
     const shFat = await rpc<FatShein>("shein_faturamento", { p_month: mes });
-    // SHEIN — CMV (shein_itens × ml_custo_produto com vigência).
+    // SHEIN — deduções reais do pedido (cupons/promos + comissão + taxa de fulfillment).
+    const shDed = await rpc<DedShein>("shein_deducoes", { p_month: mes });
+    // SHEIN — CMV (shein_itens × ml_custo_produto com vigência; 1 unidade por goodsId).
     const shCmv = await rpc<CmvShein>("shein_cmv", { p_month: mes });
     // B2B — bruta (NFs por data_emissao, valor_total com IPI).
     const b2bFat = await rpc<FatB2b>("b2b_faturamento", { p_month: mes });
@@ -583,7 +595,7 @@ export const supabaseProvider: DataProvider = {
       (spFat.faturamento_bruto ?? 0) +   // Shopee (líquido = bruto)
       (ttFat.faturamento_liquido ?? 0) + // TikTok (líquido)
       azLiquido +                        // Amazon (bruto − refund)
-      (shFat.faturamento_bruto ?? 0) +   // SHEIN (MVP: líquido = bruto)
+      Math.round(((shFat.faturamento_bruto ?? 0) - (shFat.cancel_devolucoes ?? 0)) * 100) / 100 + // SHEIN (bruto − devoluções)
       (b2bFat.faturamento_bruto ?? 0);   // B2B (líquido = bruto)
     const totalPedidos =
       (a.totalPedidosValidos ?? 0) +     // ML: paid + partially_refunded
@@ -823,32 +835,36 @@ export const supabaseProvider: DataProvider = {
           };
         })(),
         (() => {
-          // SHEIN (MVP): topo real (bruta da API quando a ingestão ligar) + CMV real.
-          // REGRA DURA: comissão/frete/ADS ainda SEM fonte automática → null (nunca
-          // estimado) e M.C. suprimida; mostra-se margem bruta (bruta − CMV) + nota.
+          // SHEIN: topo e deduções REAIS do order-detail (bruta − cupons/promos − comissão
+          // − taxa de serviço fecha centavo a centavo com o estimatedGrossIncome da API).
+          // Valores do PEDIDO — a conciliação com o settlement/repasse é fase futura.
           const shBruto = shFat.faturamento_bruto || null;
-          const shLiquido = shBruto;
+          const shLiquido = shBruto != null
+            ? Math.round((shFat.faturamento_bruto - (shFat.cancel_devolucoes ?? 0)) * 100) / 100
+            : null;
           const shCmvVal = shCmv.itens_total > 0 ? shCmv.cmv_total : null;
           const cmvNota = shCmv.itens_total > 0
             ? `${shCmv.itens_com_custo} de ${shCmv.itens_total} com custo`
             : undefined;
-          const deducoesSh = DEDUCAO_LABELS_SHEIN.map((label) =>
-            label === "CMV"
-              ? { label, valor: shCmvVal, nota: cmvNota }
-              : { label, valor: null, nota: label === "Comissão" ? "aguardando fase 100%" : undefined },
-          );
-          const margem = shLiquido != null && shCmvVal != null
-            ? Math.round((shLiquido - shCmvVal) * 100) / 100
+          const deducoesSh = DEDUCAO_LABELS_SHEIN.map((label): { label: string; valor: number | null; nota?: string } => {
+            if (label === "Cupons e Promoções") return { label, valor: shDed.cupons_promos || null };
+            if (label === "Comissão") return { label, valor: shDed.comissao || null };
+            if (label === "Taxa de serviço") return { label, valor: shDed.taxa_servico || null };
+            if (label === "CMV") return { label, valor: shCmvVal, nota: cmvNota };
+            return { label, valor: null };
+          });
+          const totalDeducoesSh = deducoesSh.reduce((s, d) => s + (d.valor ?? 0), 0);
+          const shMc = shLiquido != null
+            ? Math.round((shLiquido - totalDeducoesSh) * 100) / 100
             : null;
           return {
             ...dreVazio("SHEIN"),
             faturamentoBruto: shBruto,
-            cancelDevolucoes: shBruto != null ? 0 : null,
+            cancelDevolucoes: shBruto != null ? (shFat.cancel_devolucoes ?? 0) : null,
             faturamentoLiquido: shLiquido,
             deducoes: deducoesSh,
-            margemBruta: margem,
-            mc: null,
-            mcNota: shBruto != null ? "MVP — deduções na fase 100%" : null,
+            mc: shMc,
+            mcNota: shBruto != null ? "valores do pedido — settlement na próxima fase" : null,
           };
         })(),
         (() => {
