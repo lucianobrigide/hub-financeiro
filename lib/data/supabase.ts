@@ -12,10 +12,12 @@ const DEDUCAO_LABELS_DIFAL = ["Comissão", "Frete", "ADS", "Full", "Afiliados", 
 const DEDUCAO_LABELS_SHOPEE = ["Comissão e Fretes reais cobrados", "ADS", "Full", "Afiliados", "DIFAL", "CMV", "Custo Devoluções"];
 /** TikTok: "Taxas" é linha própria (sfp_service_fee + fee_per_item); sem "Full". */
 const DEDUCAO_LABELS_TT = ["Comissão", "Taxas", "Frete", "ADS", "Afiliados", "CMV"];
-/** SHEIN: deduções REAIS do order-detail (cupons/promos, comissão, taxa de serviço de
- *  fulfillment) — decomposição bate centavo a centavo com o estimatedGrossIncome da API
- *  (validado 07/08/2026). Valores do PEDIDO; conciliação com settlement é fase futura. */
-const DEDUCAO_LABELS_SHEIN = ["Cupons e Promoções", "Comissão", "Taxa de serviço", "CMV"];
+/** SHEIN: bruta = preço PAGO pelo cliente (sellerCurrencyDiscountPrice; decisão do
+ *  Luciano 09/08/2026 — bate com a central de vendedores). Deduções REAIS por item;
+ *  "Subsídio SHEIN" é CRÉDITO (negativo): a SHEIN calcula o repasse sobre base maior
+ *  que o preço pago. Identidade: pago − (comissão + taxa − subsídio) =
+ *  estimatedGrossIncome da API, centavo a centavo. Settlement é fase futura. */
+const DEDUCAO_LABELS_SHEIN = ["Comissão", "Taxa de serviço", "Subsídio SHEIN", "CMV"];
 
 /** DRE de uma plataforma sem dado (tudo null) — UI mostra "sem dados". */
 function dreVazio(nome: string): PlataformaDre {
@@ -227,18 +229,18 @@ interface CmvAz {
   itens_total: number;
 }
 
-/** Retorno do RPC shein_faturamento (bruta = Σ produto_total, status ≠ 6/8/9; competência payment_time BRT). */
+/** Retorno do RPC shein_faturamento (bruta = Σ preço PAGO pelo cliente, status ≠ 6/8/9; competência payment_time BRT). */
 interface FatShein {
   faturamento_bruto: number;
   cancel_devolucoes: number;
   total_pedidos: number;
 }
 
-/** Retorno do RPC shein_deducoes (comissão, taxa de fulfillment e cupons/promos REAIS do order-detail). */
+/** Retorno do RPC shein_deducoes (comissão, taxa de fulfillment e subsídio SHEIN — crédito — REAIS por item). */
 interface DedShein {
   comissao: number;
   taxa_servico: number;
-  cupons_promos: number;
+  subsidio: number;
 }
 
 /** Retorno do RPC shein_cmv (custo × quantidade, via ml_custo_produto com vigência). */
@@ -835,9 +837,10 @@ export const supabaseProvider: DataProvider = {
           };
         })(),
         (() => {
-          // SHEIN: topo e deduções REAIS do order-detail (bruta − cupons/promos − comissão
-          // − taxa de serviço fecha centavo a centavo com o estimatedGrossIncome da API).
-          // Valores do PEDIDO — a conciliação com o settlement/repasse é fase futura.
+          // SHEIN: bruta = preço PAGO pelo cliente (bate com a central de vendedores);
+          // "Subsídio SHEIN" entra NEGATIVO (crédito — a SHEIN repassa sobre base maior
+          // que o preço pago). pago − comissão − taxa + subsídio = estimatedGrossIncome
+          // da API, centavo a centavo. Conciliação com o settlement é fase futura.
           const shBruto = shFat.faturamento_bruto || null;
           const shLiquido = shBruto != null
             ? Math.round((shFat.faturamento_bruto - (shFat.cancel_devolucoes ?? 0)) * 100) / 100
@@ -847,9 +850,10 @@ export const supabaseProvider: DataProvider = {
             ? `${shCmv.itens_com_custo} de ${shCmv.itens_total} com custo`
             : undefined;
           const deducoesSh = DEDUCAO_LABELS_SHEIN.map((label): { label: string; valor: number | null; nota?: string } => {
-            if (label === "Cupons e Promoções") return { label, valor: shDed.cupons_promos || null };
             if (label === "Comissão") return { label, valor: shDed.comissao || null };
             if (label === "Taxa de serviço") return { label, valor: shDed.taxa_servico || null };
+            if (label === "Subsídio SHEIN")
+              return { label, valor: shDed.subsidio ? -shDed.subsidio : null, nota: "desconto bancado pela SHEIN — crédito" };
             if (label === "CMV") return { label, valor: shCmvVal, nota: cmvNota };
             return { label, valor: null };
           });
