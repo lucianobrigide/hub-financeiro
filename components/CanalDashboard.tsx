@@ -11,6 +11,7 @@ const CANAL_KEY: Record<string, string> = {
   shopee: "sp",
   tiktok: "tt",
   amazon: "az",
+  shein: "sh",
   "vendas-internas": "b2b",
 };
 
