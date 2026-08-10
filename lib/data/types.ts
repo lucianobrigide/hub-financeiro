@@ -246,6 +246,24 @@ export interface DataProvider {
    * OPCIONAL: só o provider Supabase implementa.
    */
   getDreTopo?(month: string): Promise<Record<string, number>>;
+  /**
+   * Trava de fechamento: compara o DRE vivo do mês com o snapshot congelado no
+   * fechamento oficial (omie_dre_drift). OPCIONAL: só o provider Supabase implementa.
+   */
+  getDreDrift?(month: string): Promise<DreDrift | null>;
+}
+
+/** Resultado da trava de fechamento (RPC omie_dre_drift). */
+export interface DreDrift {
+  mes: string;
+  /** false = mês nunca foi fechado (sem snapshot). */
+  fechado: boolean;
+  /** "DD/MM/YYYY HH:MM" do fechamento oficial. */
+  fechado_em?: string;
+  obs?: string | null;
+  /** Soma dos deltas (0 = vivo idêntico ao fechado). */
+  drift_total?: number;
+  linhas_divergentes?: { linha: string; fechado: number; atual: number; delta: number }[];
 }
 
 /** Um cron job na página de Crons. */

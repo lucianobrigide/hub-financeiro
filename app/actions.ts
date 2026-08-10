@@ -1,7 +1,7 @@
 "use server";
 
 import { dataProvider } from "@/lib/data";
-import type { DashboardData, DreItem, SkuDre } from "@/lib/data/types";
+import type { DashboardData, DreDrift, DreItem, SkuDre } from "@/lib/data/types";
 
 // Server Action: o dropdown (client) chama isto ao trocar o mês. O dataProvider
 // roda SÓ no servidor — o client nunca importa lib/data (que puxa server-only).
@@ -33,6 +33,11 @@ export async function fetchDreItensAction(
   categoria: string,
 ): Promise<DreItem[]> {
   return (await dataProvider.getDreItens?.(month, dreCode, categoria)) ?? [];
+}
+
+// Server Action: trava de fechamento — vivo × snapshot congelado do mês (selo do /dre).
+export async function fetchDreDriftAction(month: string): Promise<DreDrift | null> {
+  return (await dataProvider.getDreDrift?.(month)) ?? null;
 }
 
 // Server Action: DRE completo do mês. Junta o topo (Hub, acima da MC) com o detalhe do

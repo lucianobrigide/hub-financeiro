@@ -1,8 +1,8 @@
 "use client";
 
 import { Fragment, useEffect, useState, type ChangeEvent } from "react";
-import { fetchDreCompletoAction, fetchDreItensAction } from "@/app/actions";
-import type { DreItem } from "@/lib/data/types";
+import { fetchDreCompletoAction, fetchDreDriftAction, fetchDreItensAction } from "@/app/actions";
+import type { DreDrift, DreItem } from "@/lib/data/types";
 import { useDashboard } from "./DashboardProvider";
 import { COLORS, brl, pct } from "./ui";
 
@@ -126,6 +126,9 @@ export function DreTable() {
   // 3º nível: itens unitários por (linha|categoria), buscados sob demanda ao clicar na categoria.
   const [abertoItem, setAbertoItem] = useState<Set<string>>(new Set());
   const [itens, setItens] = useState<Record<string, DreItem[]>>({});
+  // Trava de fechamento: selo "fechado ✓ / divergente ⚠" do mês selecionado.
+  const [drift, setDrift] = useState<DreDrift | null>(null);
+  const [driftAberto, setDriftAberto] = useState(false);
 
   useEffect(() => {
     if (!mesValue) return;
@@ -140,6 +143,11 @@ export function DreTable() {
       const g: Record<string, { nome: string; valor: number }[]> = {};
       for (const rr of rows) (g[rr.dre_code] ??= []).push({ nome: rr.nome, valor: rr.valor });
       setDetalhe(g);
+    });
+    setDrift(null);
+    setDriftAberto(false);
+    fetchDreDriftAction(mesValue).then((d) => {
+      if (ativo) setDrift(d);
     });
     return () => {
       ativo = false;
@@ -215,6 +223,32 @@ export function DreTable() {
   return (
     <div className="overflow-x-auto">
       <div className="mb-3 flex items-center justify-end gap-3">
+        {/* Selo da trava de fechamento: compara o DRE vivo com o snapshot congelado. */}
+        {drift &&
+          (!drift.fechado ? (
+            <span className="rounded-full border px-2.5 py-1 text-[10px]" style={{ color: COLORS.muted, borderColor: COLORS.panelBorder }}>
+              sem fechamento registrado
+            </span>
+          ) : (drift.drift_total ?? 0) === 0 && (drift.linhas_divergentes?.length ?? 0) === 0 ? (
+            <span
+              className="rounded-full px-2.5 py-1 text-[10px] font-semibold"
+              style={{ color: COLORS.green, background: `${COLORS.green}1a` }}
+              title={drift.obs ?? undefined}
+            >
+              ✓ Fechado em {drift.fechado_em} — sem divergências
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setDriftAberto((v) => !v)}
+              className="rounded-full px-2.5 py-1 text-[10px] font-bold"
+              style={{ color: COLORS.red, background: `${COLORS.red}1a`, cursor: "pointer" }}
+              title="O DRE vivo divergiu do fechamento oficial — clique para ver as linhas"
+            >
+              ⚠ DIVERGENTE do fechamento ({drift.fechado_em}) · Δ {brl(drift.drift_total ?? 0)}{" "}
+              {driftAberto ? "▾" : "▸"}
+            </button>
+          ))}
         <span className="text-xs" style={{ color: COLORS.muted }}>
           Mês fechado
         </span>
@@ -234,6 +268,37 @@ export function DreTable() {
           ))}
         </select>
       </div>
+      {/* Detalhe da divergência: linha a linha, fechado × atual. */}
+      {driftAberto && drift?.fechado && (drift.linhas_divergentes?.length ?? 0) > 0 && (
+        <div className="mb-3 rounded-lg border p-3" style={{ borderColor: `${COLORS.red}55`, background: `${COLORS.red}0a` }}>
+          <div className="mb-2 text-[11px] font-semibold" style={{ color: COLORS.red }}>
+            O DRE vivo divergiu do fechamento oficial — alguém remarcou lançamentos deste mês na Omie:
+          </div>
+          <table className="w-full text-[11px]">
+            <thead>
+              <tr style={{ color: COLORS.muted }}>
+                <th className="py-1 text-left font-semibold">Linha</th>
+                <th className="py-1 text-right font-semibold">Fechado</th>
+                <th className="py-1 text-right font-semibold">Atual</th>
+                <th className="py-1 text-right font-semibold">Δ</th>
+              </tr>
+            </thead>
+            <tbody>
+              {drift.linhas_divergentes!.map((d) => (
+                <tr key={d.linha}>
+                  <td className="py-0.5" style={{ color: COLORS.white }}>{d.linha}</td>
+                  <td className="py-0.5 text-right tabular-nums" style={{ color: COLORS.muted }}>{brl(d.fechado)}</td>
+                  <td className="py-0.5 text-right tabular-nums" style={{ color: COLORS.muted }}>{brl(d.atual)}</td>
+                  <td className="py-0.5 text-right font-semibold tabular-nums" style={{ color: COLORS.red }}>{brl(d.delta)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="mt-2 text-[10px]" style={{ color: COLORS.muted }}>
+            Corrija na Omie (o número volta sozinho no próximo sync) ou re-feche o mês para aceitar o novo valor.
+          </div>
+        </div>
+      )}
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr style={{ color: COLORS.muted }}>
