@@ -347,7 +347,10 @@ interface FatTt {
   settlement: number;
 }
 
-/** Retorno do RPC tt_deducoes (finance by-order: comissão/taxas/frete/ads/afiliados; taxas é residual). */
+/** Retorno do RPC tt_deducoes_projetado (real dos liquidados + provisão dos aguardando
+ *  settlement, por take-rate móvel; afiliado usa aff_commission real quando houver;
+ *  ads prioriza tt_ads_diario). Decisão do Luciano 12/08/2026: M.C. projetada em vez
+ *  de esconder abaixo do piso — a provisão é substituída pelo real pedido a pedido. */
 interface DedTt {
   comissao: number;
   taxas: number;
@@ -355,6 +358,12 @@ interface DedTt {
   ads: number;
   afiliados: number;
   pedidos: number;
+  pedidos_liquidados: number;
+  pedidos_provisionados: number;
+  pedidos_afiliado_real: number;
+  /** Cobertura ponderada por receita (0–100). */
+  pct_liquidado: number;
+  ads_fonte: "tt_ads_diario" | "settlement+provisao";
 }
 
 /** Retorno do RPC tt_cmv (CMV TikTok via ml_custo_produto + unaccent no seller_sku). */
@@ -564,8 +573,9 @@ export const supabaseProvider: DataProvider = {
     const b2bCmv = await rpc<CmvB2b>("b2b_cmv", { p_month: mes });
     // TikTok — bruta (Σ revenue_amount by-order, competência create_time BRT, régua não-cancelado+liquidado).
     const ttFat = await rpc<FatTt>("tt_faturamento", { p_month: mes });
-    // TikTok — deduções finance by-order (comissão/taxas/frete/ads/afiliados; taxas residual, reconcilia no fee_and_tax).
-    const ttDed = await rpc<DedTt>("tt_deducoes", { p_month: mes });
+    // TikTok — deduções PROJETADAS (real dos liquidados + provisão por take-rate dos demais;
+    // afiliado real via Affiliate API quando disponível; ads via tt_ads_diario > settlement).
+    const ttDed = await rpc<DedTt>("tt_deducoes_projetado", { p_month: mes });
     // TikTok — CMV (seller_sku × ml_custo_produto, unaccent).
     const ttCmv = await rpc<CmvTt>("tt_cmv", { p_month: mes });
 
@@ -728,61 +738,38 @@ export const supabaseProvider: DataProvider = {
         })(),
         (() => {
           const ttBruto = ttFat.faturamento_bruto || null;
-          // Bruta/líquido = 100% desde a venda (pago antes de liquidar). As deduções, porém,
-          // só existem quando o pedido liquida (o order detail NÃO traz fee_breakdown antes —
-          // teste 28/07/2026). REGRA DURA: nada estimado. Piso de cobertura decide a exibição.
+          // M.C. PROJETADA (decisão 12/08/2026): receita cheia contra deduções cheias —
+          // reais nos pedidos liquidados, provisionadas por take-rate móvel nos demais
+          // (afiliado real via Affiliate API quando houver; ads via tt_ads_diario quando
+          // houver). A provisão é substituída pelo real pedido a pedido conforme o
+          // settlement chega; pct_liquidado diz quanto do número já é batido.
           const ttLiquido = ttFat.faturamento_liquido || null;
           const cmvNota = ttCmv.itens_total > 0
             ? `${ttCmv.itens_com_custo} de ${ttCmv.itens_total} com custo`
             : undefined;
-          // Cobertura ponderada por RECEITA (não por contagem): quanto do dinheiro já liquidou.
-          const cobertura = ttFat.pago_total > 0 ? ttFat.pago_liquidado / ttFat.pago_total : 0;
-          const cobPct = Math.round(cobertura * 100);
+          const cobPct = ttDed.pct_liquidado ?? 0;
           const ttCmvFull = ttCmv.itens_total > 0 ? ttCmv.cmv_total : null;
-
-          if (cobertura < PISO_COBERTURA) {
-            // Em consolidação: bruta/CMV/margem bruta REAIS (100% desde a venda); deduções
-            // aguardam liquidação; M.C. não é exibida (mostra-se cobertura, não estimativa).
-            const deducoesTt = DEDUCAO_LABELS_TT.map((label) =>
-              label === "CMV"
-                ? { label, valor: ttCmvFull, nota: cmvNota }
-                : { label, valor: null, nota: label === "Comissão" ? "aguardando liquidação" : undefined },
-            );
-            const margem = ttLiquido != null && ttCmvFull != null
-              ? Math.round((ttLiquido - ttCmvFull) * 100) / 100
-              : null;
-            return {
-              ...dreVazio("TikTok Shop"),
-              faturamentoBruto: ttBruto,
-              cancelDevolucoes: ttBruto != null ? ttFat.devolucoes : null,
-              faturamentoLiquido: ttLiquido,
-              deducoes: deducoesTt,
-              margemBruta: margem,
-              mc: null,
-              mcNota: `cobertura ${cobPct}% — em consolidação`,
-            };
-          }
-
-          // Acima do piso: M.C. sobre o SUBCONJUNTO LIQUIDADO dos dois lados (receita e deduções
-          // do mesmo conjunto). Nunca líquido cheio contra dedução parcial. A 100% coincide com
-          // o total; só diverge na faixa onde o descasamento passaria batido.
-          const ttCmvLiq = ttCmv.itens_liquidados > 0 ? ttCmv.cmv_liquidado
-            : (ttCmv.itens_total > 0 ? 0 : null);
-          const covNota = ttFat.total_pedidos > 0
-            ? `${ttFat.pedidos_liquidados} de ${ttFat.total_pedidos} liquidados`
+          const provNota = ttDed.pedidos_provisionados > 0
+            ? `${ttDed.pedidos_liquidados} de ${ttDed.pedidos} liquidados — resto provisionado`
+            : undefined;
+          const adsNota = ttDed.ads_fonte === "tt_ads_diario"
+            ? "gasto real diário (GMV Max)"
+            : (ttDed.pedidos_provisionados > 0 && ttDed.ads > 0 ? "settlement + provisão" : undefined);
+          const afilNota = ttDed.pedidos_afiliado_real > 0
+            ? `${ttDed.pedidos_afiliado_real} pedidos com comissão real`
             : undefined;
           const deducoesTt = DEDUCAO_LABELS_TT.map((label) => {
-            if (label === "Comissão") return { label, valor: ttDed.comissao || null, nota: covNota };
+            if (label === "Comissão") return { label, valor: ttDed.comissao || null, nota: provNota };
             if (label === "Taxas") return { label, valor: ttDed.taxas || null };
             if (label === "Frete") return { label, valor: ttDed.frete || null };
-            if (label === "ADS") return { label, valor: ttDed.ads ?? 0 };
-            if (label === "Afiliados") return { label, valor: ttDed.afiliados ?? 0 };
-            if (label === "CMV") return { label, valor: ttCmvLiq, nota: cmvNota };
+            if (label === "ADS") return { label, valor: ttDed.ads ?? 0, nota: adsNota };
+            if (label === "Afiliados") return { label, valor: ttDed.afiliados ?? 0, nota: afilNota };
+            if (label === "CMV") return { label, valor: ttCmvFull, nota: cmvNota };
             return { label, valor: null };
           });
           const totalDeducoesTt = deducoesTt.reduce((s, d) => s + (d.valor ?? 0), 0);
-          const ttMc = ttFat.liquido_liquidado != null
-            ? Math.round((ttFat.liquido_liquidado - totalDeducoesTt) * 100) / 100
+          const ttMc = ttLiquido != null
+            ? Math.round((ttLiquido - totalDeducoesTt) * 100) / 100
             : null;
           return {
             ...dreVazio("TikTok Shop"),
@@ -791,7 +778,9 @@ export const supabaseProvider: DataProvider = {
             faturamentoLiquido: ttLiquido,
             deducoes: deducoesTt,
             mc: ttMc,
-            mcNota: cobertura < 1 ? `cobertura ${cobPct}% — M.C. sobre pedidos liquidados` : undefined,
+            mcNota: cobPct < 100
+              ? `M.C. projetada — ${cobPct}% liquidado, restante provisionado`
+              : undefined,
           };
         })(),
         (() => {
