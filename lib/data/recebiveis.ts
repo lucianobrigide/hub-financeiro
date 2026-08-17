@@ -51,9 +51,13 @@ export const RECEBIVEIS_ROSTER: readonly Omit<
     nota: null,
   },
   {
+    // INTEGRADO 17/08/2026 (RPC az_recebiveis). Único com cronograma PARCIAL: o
+    // que já está a caminho do banco tem data de transferência real; o ciclo
+    // corrente (grupo Open) é valor real sem data — a Amazon não publica quando
+    // o ciclo fecha (na prática ~14 dias, mas isso é observação, não dado).
     id: "amazon",
     nome: "Amazon",
-    fonte: "settlement (repasse quinzenal, 2 postagens por ciclo)",
+    fonte: "ciclos financeiros da SP-API — transferências a caminho (com data) + ciclo corrente",
     integrado: false,
     nota: null,
   },

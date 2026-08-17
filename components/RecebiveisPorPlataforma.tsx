@@ -29,6 +29,11 @@ function difDias(de: string, ate: string): number {
   return Math.round((b - a) / 86400000);
 }
 
+/** Σ do cronograma (o que TEM data). Pode ser menor que `total` — ver `valorSemData`. */
+function somaDias(p: RecebiveisPlataforma): number {
+  return p.dias.reduce((s, d) => s + d.valor, 0);
+}
+
 /** Σ por faixa. Dias já vencidos (d <= 0) caem na primeira faixa. */
 function porFaixa(p: RecebiveisPlataforma, referencia: string): number[] {
   const out = FAIXAS.map(() => 0);
@@ -223,6 +228,15 @@ function CardPlataforma({
                 </>
               )}
               {p.dias.length} {p.dias.length === 1 ? "data" : "datas"} de liberação
+              {/* Cronograma parcial: o resto do total não tem data. Sem isso, as
+                  faixas somariam menos que o total sem explicação. */}
+              {p.valorSemData != null && p.valorSemData !== 0 && (
+                <>
+                  {" · "}
+                  <strong style={{ color: "#ffb84d" }}>{brl(p.valorSemData)}</strong> sem
+                  data prevista
+                </>
+              )}
               {p.atualizadoEm ? ` · atualizado ${p.atualizadoEm}` : ""}
             </span>
             {p.dias.length > 0 && (
@@ -304,7 +318,9 @@ export function RecebiveisPorPlataforma({ dados }: { dados: Recebiveis | null })
   // quatro faixas somarem menos que o total, sem explicação visível.
   const comCronograma = somam.filter((p) => p.dias.length > 0);
   const semCronograma = somam.filter((p) => p.dias.length === 0);
-  const totalComCronograma = comCronograma.reduce((s, p) => s + (p.total ?? 0), 0);
+  // Base das faixas = só o que TEM data. Usar p.total aqui inflaria a base quando
+  // o cronograma é parcial (Amazon: ciclo aberto entra no total, não nas faixas).
+  const totalComCronograma = comCronograma.reduce((s, p) => s + somaDias(p), 0);
   const faixasGerais = FAIXAS.map((_, i) =>
     comCronograma.reduce((s, p) => s + porFaixa(p, referencia)[i], 0),
   );

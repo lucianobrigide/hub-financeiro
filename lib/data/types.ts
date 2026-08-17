@@ -241,6 +241,13 @@ export interface RecebiveisPlataforma {
   foraDoTotal?: boolean;
   /** Rótulo do valor quando ele não é "a receber" líquido (ex.: "Pago, a liquidar"). */
   rotuloValor?: string;
+  /**
+   * Parte do `total` que NÃO tem data — cronograma PARCIAL. Hoje só a Amazon:
+   * o que já está a caminho do banco tem data de transferência, mas o ciclo
+   * corrente (ainda aberto) é valor real sem data de fechamento publicada.
+   * Quando presente, Σ`dias` + `valorSemData` = `total`.
+   */
+  valorSemData?: number | null;
 }
 
 /** Payload da seção "Recebíveis por plataforma". */

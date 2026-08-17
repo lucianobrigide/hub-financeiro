@@ -157,6 +157,20 @@ interface TtRecebiveisRow {
   atualizado_em: string | null;
 }
 
+/**
+ * Retorno do RPC `az_recebiveis`. Cronograma PARCIAL: `dias` cobre só o que já
+ * está a caminho do banco; `sem_data` é o ciclo aberto (real, mas sem data).
+ */
+interface AzRecebiveisRow {
+  referencia: string;
+  total: number;
+  em_transito: number;
+  sem_data: number;
+  grupos_abertos: number;
+  atualizado_em: string | null;
+  dias: { data: string; valor: number }[];
+}
+
 /** "84,6%" — percentual no formato BR para as notas dos cards. */
 function pctBr(v: number): string {
   return `${v.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
@@ -584,6 +598,34 @@ export const supabaseProvider: DataProvider = {
           dias: [],
           atualizadoEm: sp.atualizado_em ? fmtDataHora(sp.atualizado_em) : null,
           nota: `${sp.pedidos} pedidos com escrow ainda não creditado${janela}${disputa}`,
+        };
+      }
+    } catch {
+      // mantém o card como "aguardando integração"
+    }
+
+    // Amazon. Cronograma PARCIAL: o que já está a caminho do banco tem data de
+    // transferência (grupos Closed+Processing); o ciclo corrente (Open) é valor
+    // real mas a Amazon não publica quando fecha — vai em `valorSemData`.
+    try {
+      const az = await rpc<AzRecebiveisRow>("az_recebiveis");
+      const i = plataformas.findIndex((p) => p.id === "amazon");
+      if (az && i >= 0) {
+        const partes = [`${brlSimples(az.em_transito)} já a caminho do banco`];
+        if (az.grupos_abertos > 0) {
+          partes.push(
+            `${brlSimples(az.sem_data)} no ciclo aberto (a Amazon não publica a data de fechamento)`,
+          );
+        }
+        plataformas[i] = {
+          ...plataformas[i],
+          integrado: true,
+          total: az.total,
+          disponivel: null,
+          valorSemData: az.sem_data !== 0 ? az.sem_data : null,
+          dias: (az.dias ?? []).map((d) => ({ data: d.data, valor: d.valor })),
+          atualizadoEm: az.atualizado_em ? fmtDataHora(az.atualizado_em) : null,
+          nota: partes.join(" · "),
         };
       }
     } catch {
