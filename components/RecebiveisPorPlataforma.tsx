@@ -145,7 +145,11 @@ function CardPlataforma({
 }) {
   // Cronograma já aberto quando há dado: as barras SÃO a leitura principal do card.
   const [aberto, setAberto] = useState(true);
-  const faixas = p.integrado ? porFaixa(p, referencia) : null;
+  // Plataforma integrada PODE não ter cronograma: a Shopee, por exemplo, informa
+  // quanto vai cair mas não em que dia. Nesse caso as faixas ficam de fora — quatro
+  // "R$ 0,00" leriam como "não tem nada a receber", que é falso.
+  const temCronograma = p.dias.length > 0;
+  const faixas = p.integrado && temCronograma ? porFaixa(p, referencia) : null;
   const somaFaixas = faixas ? faixas.reduce((s, v) => s + v, 0) : 0;
   // Escala das barras do cronograma: o maior dia = barra cheia.
   const maiorDia = p.dias.reduce((m, d) => Math.max(m, d.valor), 0);
@@ -242,6 +246,24 @@ function CardPlataforma({
         </>
       )}
 
+      {/* Integrada, com valor real, mas sem data de liberação na API. */}
+      {p.integrado && !temCronograma && (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs">
+          <span style={{ color: COLORS.muted }}>
+            {p.disponivel != null && (
+              <>
+                Saldo já liberado:{" "}
+                <strong style={{ color: COLORS.green }}>{brl(p.disponivel)}</strong>
+                {" · "}
+              </>
+            )}
+            <span style={{ color: "#ffb84d" }}>sem data de liberação na API</span> — total
+            sem cronograma
+            {p.atualizadoEm ? ` · atualizado ${p.atualizadoEm}` : ""}
+          </span>
+        </div>
+      )}
+
       {p.nota && (
         <p className="mt-3 text-xs italic" style={{ color: COLORS.muted }}>
           {p.nota}
@@ -266,9 +288,14 @@ export function RecebiveisPorPlataforma({ dados }: { dados: Recebiveis | null })
   const integradas = plataformas.filter((p) => p.integrado);
   const totalGeral = integradas.reduce((s, p) => s + (p.total ?? 0), 0);
   const dispGeral = integradas.reduce((s, p) => s + (p.disponivel ?? 0), 0);
-  // Faixas consolidadas — só das integradas (o resto não tem número).
+  // Nem toda integrada tem data de liberação (a Shopee informa o valor, não o dia).
+  // As faixas só podem falar do subconjunto COM cronograma — misturar faria as
+  // quatro faixas somarem menos que o total, sem explicação visível.
+  const comCronograma = integradas.filter((p) => p.dias.length > 0);
+  const semCronograma = integradas.filter((p) => p.dias.length === 0);
+  const totalComCronograma = comCronograma.reduce((s, p) => s + (p.total ?? 0), 0);
   const faixasGerais = FAIXAS.map((_, i) =>
-    integradas.reduce((s, p) => s + porFaixa(p, referencia)[i], 0),
+    comCronograma.reduce((s, p) => s + porFaixa(p, referencia)[i], 0),
   );
 
   return (
@@ -308,14 +335,14 @@ export function RecebiveisPorPlataforma({ dados }: { dados: Recebiveis | null })
           </div>
         </div>
 
-        {integradas.length > 0 && (
+        {comCronograma.length > 0 && (
           <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
             {FAIXAS.map((f, i) => (
               <FaixaBar
                 key={f.label}
                 label={f.label}
                 valor={faixasGerais[i]}
-                frac={totalGeral > 0 ? faixasGerais[i] / totalGeral : 0}
+                frac={totalComCronograma > 0 ? faixasGerais[i] / totalComCronograma : 0}
               />
             ))}
           </div>
@@ -324,6 +351,16 @@ export function RecebiveisPorPlataforma({ dados }: { dados: Recebiveis | null })
         <p className="mt-3 text-xs italic" style={{ color: COLORS.muted }}>
           O total soma apenas as plataformas já integradas — não é o caixa a receber
           inteiro enquanto a cobertura não for {plataformas.length} de {plataformas.length}.
+          {semCronograma.length > 0 && (
+            <>
+              {" "}
+              As faixas por prazo cobrem {brl(totalComCronograma)} —{" "}
+              {semCronograma.map((p) => p.nome).join(", ")}{" "}
+              {semCronograma.length === 1 ? "não informa" : "não informam"} data de
+              liberação na API, então {semCronograma.length === 1 ? "entra" : "entram"} no
+              total mas não nas faixas.
+            </>
+          )}
         </p>
       </div>
 

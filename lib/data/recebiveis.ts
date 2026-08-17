@@ -27,9 +27,12 @@ export const RECEBIVEIS_ROSTER: readonly Omit<
     nota: null,
   },
   {
+    // INTEGRADO 17/08/2026 (RPC shopee_recebiveis). ⚠️ SEM cronograma: a API da
+    // Shopee informa quanto vai cair, não em que dia (get_escrow_detail não tem
+    // release date). O card mostra o total e diz explicitamente que não há data.
     id: "shopee",
     nome: "Shopee",
-    fonte: "escrow do pedido (repasse) — já ingerido em shopee_escrow",
+    fonte: "escrow do pedido, conferido contra a carteira — a Shopee não informa data de liberação",
     integrado: false,
     nota: null,
   },

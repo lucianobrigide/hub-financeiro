@@ -124,6 +124,34 @@ interface MpRecebiveisRow {
   dias: { data: string; valor: number }[];
 }
 
+/** Retorno do RPC `shopee_recebiveis`. Sem cronograma: a Shopee não publica data de liberação. */
+interface ShopeeRecebiveisRow {
+  referencia: string;
+  /** Σ do escrow ainda não creditado na carteira (já sem devoluções/compensados). */
+  total: number;
+  pedidos: number;
+  /** Escrow que NÃO vai cair: devolução, compensado por fora, ou fechado como débito. */
+  em_disputa: number;
+  pedidos_disputa: number;
+  /** Saldo parado na carteira Shopee (current_balance da última transação). */
+  disponivel: number | null;
+  /** Janela coberta pela ingestão da carteira — fora dela o pedido é desconhecido, não "a receber". */
+  cobertura_de: string | null;
+  cobertura_ate: string | null;
+  atualizado_em: string | null;
+}
+
+/** "R$ 14.706,17" — para notas de texto montadas no servidor. */
+function brlSimples(v: number): string {
+  return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+/** "17/08" a partir de 'YYYY-MM-DD'. */
+function fmtDia(d: string): string {
+  const [, m, dia] = d.split("-");
+  return `${dia}/${m}`;
+}
+
 /** "17/08 15:27" (BRT) a partir de um ISO — usado no "atualizado" dos cards. */
 function fmtDataHora(iso: string): string {
   return new Date(iso).toLocaleString("pt-BR", {
@@ -504,6 +532,37 @@ export const supabaseProvider: DataProvider = {
           dias: (mp.dias ?? []).map((d) => ({ data: d.data, valor: d.valor })),
           atualizadoEm: mp.atualizado_em ? fmtDataHora(mp.atualizado_em) : null,
           nota,
+        };
+      }
+    } catch {
+      // mantém o card como "aguardando integração"
+    }
+
+    // Shopee. Tem valor real, mas NÃO tem data: `dias` vazio de propósito — a API
+    // não publica release date (get_escrow_detail não traz nenhuma). Estimar pelo
+    // lag histórico seria inventar; o card mostra o total e diz que não há cronograma.
+    try {
+      const sp = await rpc<ShopeeRecebiveisRow>("shopee_recebiveis");
+      const i = plataformas.findIndex((p) => p.id === "shopee");
+      if (sp && i >= 0) {
+        const janela =
+          sp.cobertura_de && sp.cobertura_ate
+            ? ` · conferido contra a carteira de ${fmtDia(sp.cobertura_de)} a ${fmtDia(sp.cobertura_ate)}`
+            : "";
+        // Devolução/compensado/escrow fechado como débito não entra no total — mas
+        // aparece, pra a exclusão ser auditável em vez de sumir em silêncio.
+        const disputa =
+          sp.em_disputa > 0
+            ? ` · fora do total: ${brlSimples(sp.em_disputa)} em ${sp.pedidos_disputa} pedidos de devolução/ajuste, que não vão cair`
+            : "";
+        plataformas[i] = {
+          ...plataformas[i],
+          integrado: true,
+          total: sp.total,
+          disponivel: sp.disponivel,
+          dias: [],
+          atualizadoEm: sp.atualizado_em ? fmtDataHora(sp.atualizado_em) : null,
+          nota: `${sp.pedidos} pedidos com escrow ainda não creditado${janela}${disputa}`,
         };
       }
     } catch {
