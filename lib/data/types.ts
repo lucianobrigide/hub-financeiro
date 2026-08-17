@@ -231,6 +231,16 @@ export interface RecebiveisPlataforma {
   atualizadoEm?: string | null;
   /** Observação exibida no card (ex.: "API em conexão — próxima da fila"). */
   nota?: string | null;
+  /**
+   * true = o card mostra um número REAL, mas ele NÃO entra no total consolidado.
+   * Hoje só o TikTok (decisão do Luciano 17/08/2026): a plataforma não informa
+   * data de liquidação E o repasse varia 73%–101% do pago (a TikTok subsidia, e
+   * o settlement sai sobre a receita, não sobre o que o cliente pagou). O valor
+   * exibido é o bruto pago pelo cliente — informativo, não caixa líquido.
+   */
+  foraDoTotal?: boolean;
+  /** Rótulo do valor quando ele não é "a receber" líquido (ex.: "Pago, a liquidar"). */
+  rotuloValor?: string;
 }
 
 /** Payload da seção "Recebíveis por plataforma". */

@@ -141,6 +141,27 @@ interface ShopeeRecebiveisRow {
   atualizado_em: string | null;
 }
 
+/**
+ * Retorno do RPC `tt_recebiveis`. `total` é o BRUTO pago pelo cliente em pedidos
+ * ainda não liquidados — informativo, não caixa líquido (ver `foraDoTotal`).
+ */
+interface TtRecebiveisRow {
+  referencia: string;
+  total: number;
+  pedidos: number;
+  mais_antigo: string | null;
+  /** Faixa do repasse realizado (settlement/pago) por mês, em %. */
+  repasse_min: number | null;
+  repasse_max: number | null;
+  meses_base: number;
+  atualizado_em: string | null;
+}
+
+/** "84,6%" — percentual no formato BR para as notas dos cards. */
+function pctBr(v: number): string {
+  return `${v.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
+}
+
 /** "R$ 14.706,17" — para notas de texto montadas no servidor. */
 function brlSimples(v: number): string {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -563,6 +584,34 @@ export const supabaseProvider: DataProvider = {
           dias: [],
           atualizadoEm: sp.atualizado_em ? fmtDataHora(sp.atualizado_em) : null,
           nota: `${sp.pedidos} pedidos com escrow ainda não creditado${janela}${disputa}`,
+        };
+      }
+    } catch {
+      // mantém o card como "aguardando integração"
+    }
+
+    // TikTok. FORA DO TOTAL (decisão do Luciano 17/08/2026): sem data de
+    // liquidação e com repasse de 73%–101% do pago (a plataforma subsidia), um
+    // número único de caixa não se sustenta. O card mostra o bruto REAL pendente
+    // de liquidação + a faixa histórica de repasse, como informação.
+    try {
+      const tt = await rpc<TtRecebiveisRow>("tt_recebiveis");
+      const i = plataformas.findIndex((p) => p.id === "tiktok");
+      if (tt && i >= 0) {
+        const faixa =
+          tt.repasse_min != null && tt.repasse_max != null
+            ? ` · historicamente o repasse ficou entre ${pctBr(tt.repasse_min)} e ${pctBr(tt.repasse_max)} desse valor (${tt.meses_base} meses medidos)`
+            : "";
+        plataformas[i] = {
+          ...plataformas[i],
+          integrado: true,
+          foraDoTotal: true,
+          rotuloValor: "Pago, a liquidar",
+          total: tt.total,
+          disponivel: null,
+          dias: [],
+          atualizadoEm: tt.atualizado_em ? fmtDataHora(tt.atualizado_em) : null,
+          nota: `${tt.pedidos} pedidos pagos aguardando liquidação${tt.mais_antigo ? `, o mais antigo de ${fmtDia(tt.mais_antigo)}` : ""}${faixa}`,
         };
       }
     } catch {

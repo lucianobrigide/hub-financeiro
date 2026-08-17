@@ -39,9 +39,14 @@ export const RECEBIVEIS_ROSTER: readonly Omit<
     nota: null,
   },
   {
+    // INTEGRADO 17/08/2026 (RPC tt_recebiveis), mas FORA DO TOTAL — decisão do
+    // Luciano: o TikTok não informa data de liquidação e o repasse varia 73%–101%
+    // do pago (a plataforma subsidia; o settlement sai sobre a receita, que foi
+    // 104%–117% do que o cliente pagou). O card é informativo: bruto real pendente
+    // de liquidação + a faixa histórica de repasse, sem projetar número único.
     id: "tiktok",
     nome: "TikTok Shop",
-    fonte: "settlement por pedido (pós-entrega)",
+    fonte: "pedidos pagos aguardando liquidação — o TikTok não informa data nem valor final do repasse",
     integrado: false,
     nota: null,
   },

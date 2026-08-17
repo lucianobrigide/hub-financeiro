@@ -165,13 +165,15 @@ function CardPlataforma({
     >
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <h3 className="text-sm font-bold text-white">{p.nome}</h3>
             {p.integrado ? (
               <Tag cor={COLORS.green}>integrado</Tag>
             ) : (
               <Tag cor={COLORS.muted}>aguardando integração</Tag>
             )}
+            {/* Número real, mas que não é caixa líquido — não soma no consolidado. */}
+            {p.foraDoTotal && <Tag cor="#ffb84d">fora do total</Tag>}
           </div>
           <p className="mt-1 text-xs" style={{ color: COLORS.muted }}>
             {p.fonte}
@@ -179,14 +181,19 @@ function CardPlataforma({
         </div>
         <div className="text-right">
           <div className="text-[10px] uppercase tracking-wider" style={{ color: COLORS.muted }}>
-            A receber
+            {p.rotuloValor ?? "A receber"}
           </div>
           {p.total == null ? (
             <div className="text-sm italic" style={{ color: COLORS.muted }}>
               — sem dados ainda
             </div>
           ) : (
-            <div className="text-lg font-bold" style={{ color: COLORS.cyan }}>
+            <div
+              className="text-lg font-bold"
+              // Fora do total = não é caixa líquido; cor neutra pra não competir
+              // visualmente com os valores que somam.
+              style={{ color: p.foraDoTotal ? COLORS.white : COLORS.cyan }}
+            >
               {brl(p.total)}
             </div>
           )}
@@ -286,13 +293,17 @@ export function RecebiveisPorPlataforma({ dados }: { dados: Recebiveis | null })
 
   const { referencia, plataformas } = dados;
   const integradas = plataformas.filter((p) => p.integrado);
-  const totalGeral = integradas.reduce((s, p) => s + (p.total ?? 0), 0);
-  const dispGeral = integradas.reduce((s, p) => s + (p.disponivel ?? 0), 0);
+  // `foraDoTotal` existe pro TikTok: número real, mas não é caixa líquido —
+  // some no card, nunca no consolidado.
+  const somam = integradas.filter((p) => !p.foraDoTotal);
+  const foraDoTotal = integradas.filter((p) => p.foraDoTotal);
+  const totalGeral = somam.reduce((s, p) => s + (p.total ?? 0), 0);
+  const dispGeral = somam.reduce((s, p) => s + (p.disponivel ?? 0), 0);
   // Nem toda integrada tem data de liberação (a Shopee informa o valor, não o dia).
   // As faixas só podem falar do subconjunto COM cronograma — misturar faria as
   // quatro faixas somarem menos que o total, sem explicação visível.
-  const comCronograma = integradas.filter((p) => p.dias.length > 0);
-  const semCronograma = integradas.filter((p) => p.dias.length === 0);
+  const comCronograma = somam.filter((p) => p.dias.length > 0);
+  const semCronograma = somam.filter((p) => p.dias.length === 0);
   const totalComCronograma = comCronograma.reduce((s, p) => s + (p.total ?? 0), 0);
   const faixasGerais = FAIXAS.map((_, i) =>
     comCronograma.reduce((s, p) => s + porFaixa(p, referencia)[i], 0),
@@ -309,7 +320,7 @@ export function RecebiveisPorPlataforma({ dados }: { dados: Recebiveis | null })
             <div className="text-[10px] uppercase tracking-wider" style={{ color: COLORS.muted }}>
               Total a receber (plataformas integradas)
             </div>
-            {integradas.length === 0 ? (
+            {somam.length === 0 ? (
               <div className="text-lg italic" style={{ color: COLORS.muted }}>
                 — sem dados ainda
               </div>
@@ -322,8 +333,8 @@ export function RecebiveisPorPlataforma({ dados }: { dados: Recebiveis | null })
           <div className="text-right text-xs" style={{ color: COLORS.muted }}>
             <div>
               cobertura:{" "}
-              <strong style={{ color: integradas.length ? COLORS.white : COLORS.muted }}>
-                {integradas.length} de {plataformas.length} plataformas
+              <strong style={{ color: somam.length ? COLORS.white : COLORS.muted }}>
+                {somam.length} de {plataformas.length} plataformas
               </strong>
             </div>
             <div>referência: {ddmm(referencia)}</div>
@@ -359,6 +370,15 @@ export function RecebiveisPorPlataforma({ dados }: { dados: Recebiveis | null })
               {semCronograma.length === 1 ? "não informa" : "não informam"} data de
               liberação na API, então {semCronograma.length === 1 ? "entra" : "entram"} no
               total mas não nas faixas.
+            </>
+          )}
+          {foraDoTotal.length > 0 && (
+            <>
+              {" "}
+              {foraDoTotal.map((p) => p.nome).join(", ")}{" "}
+              {foraDoTotal.length === 1 ? "aparece" : "aparecem"} abaixo mas{" "}
+              {foraDoTotal.length === 1 ? "não entra" : "não entram"} em nenhum número
+              acima: o valor mostrado é o bruto pago pelo cliente, não o repasse líquido.
             </>
           )}
         </p>
