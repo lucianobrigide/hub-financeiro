@@ -187,6 +187,15 @@ interface SheinRecebiveisRow {
   dias: { data: string; valor: number }[];
 }
 
+/** Retorno do RPC `magalu_recebiveis`. Sem cronograma: o Magalu não publica data de repasse. */
+interface MagaluRecebiveisRow {
+  referencia: string;
+  total: number;
+  pedidos: number;
+  mais_antigo: string | null;
+  atualizado_em: string | null;
+}
+
 /** "84,6%" — percentual no formato BR para as notas dos cards. */
 function pctBr(v: number): string {
   return `${v.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
@@ -673,6 +682,28 @@ export const supabaseProvider: DataProvider = {
           dias: (sh.dias ?? []).map((d) => ({ data: d.data, valor: d.valor })),
           atualizadoEm: sh.atualizado_em ? fmtDataHora(sh.atualizado_em) : null,
           nota: partes.join(" · "),
+        };
+      }
+    } catch {
+      // mantém o card como "aguardando integração"
+    }
+
+    // Magalu. SEM cronograma: a API não publica data de repasse (a de Análise
+    // Financeira é visão contábil, sem data de pagamento — e hoje vem vazia,
+    // porque só cobre Entregue/Cancelado faturado). Valor é líquido REAL do
+    // pedido (comissão e frete vêm do próprio /seller/v1/orders).
+    try {
+      const mg = await rpc<MagaluRecebiveisRow>("magalu_recebiveis");
+      const i = plataformas.findIndex((p) => p.id === "magalu");
+      if (mg && i >= 0) {
+        plataformas[i] = {
+          ...plataformas[i],
+          integrado: true,
+          total: mg.total,
+          disponivel: null,
+          dias: [],
+          atualizadoEm: mg.atualizado_em ? fmtDataHora(mg.atualizado_em) : null,
+          nota: `${mg.pedidos} ${mg.pedidos === 1 ? "pedido não cancelado" : "pedidos não cancelados"}, líquido real (bruto − comissão − frete)${mg.mais_antigo ? `, desde ${fmtDia(mg.mais_antigo)}` : ""} · a API não registra o que já foi repassado — régua a refinar no 1º repasse`,
         };
       }
     } catch {

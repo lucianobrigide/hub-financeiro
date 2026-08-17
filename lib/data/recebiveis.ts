@@ -73,9 +73,13 @@ export const RECEBIVEIS_ROSTER: readonly Omit<
     nota: null,
   },
   {
+    // INTEGRADO 17/08/2026 (RPC magalu_recebiveis), MVP. Sem cronograma: o Magalu
+    // não publica data de repasse. A API de Análise Financeira (já autorizada) é
+    // visão contábil por pedido, sem data de pagamento — e hoje vem vazia, porque
+    // só cobre Entregue/Cancelado faturado e a operação tem 2 pedidos.
     id: "magalu",
     nome: "Magalu",
-    fonte: "relatório financeiro do seller (repasse)",
+    fonte: "líquido real do pedido (bruto − comissão − frete) — o Magalu não publica data de repasse",
     integrado: false,
     nota: null,
   },
