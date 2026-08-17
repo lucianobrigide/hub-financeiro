@@ -27,9 +27,11 @@ export const RECEBIVEIS_ROSTER: readonly Omit<
     nota: null,
   },
   {
-    // INTEGRADO 17/08/2026 (RPC shopee_recebiveis). ⚠️ SEM cronograma: a API da
-    // Shopee informa quanto vai cair, não em que dia (get_escrow_detail não tem
-    // release date). O card mostra o total e diz explicitamente que não há data.
+    // INTEGRADO 17/08/2026 (RPC shopee_recebiveis). ⚠️ SEM cronograma por AUSÊNCIA
+    // DE DADO, não por opção: nem a Open API nem o portal publicam a data de
+    // liberação (investigação completa no CLAUDE.md — o campo
+    // income_estimated_escrow_time do Seller Center vem 0 em 763 de 764 pedidos).
+    // Total validado contra o "Pendente" da própria Shopee: 96% de aderência.
     id: "shopee",
     nome: "Shopee",
     fonte: "escrow do pedido, conferido contra a carteira — a Shopee não informa data de liberação",
