@@ -100,8 +100,9 @@ Monitorar: aba **`/crons`** (RPC `crons_status`) e tabela `oauth_refresh_log` (m
 - `/marketplaces/{mercado-livre,shopee,tiktok,amazon,shein,magalu,vendas-internas}` — páginas de canal (delegam ao componente `CanalDashboard`).
 - `/login` + gate de acesso (ver Convenções / Deploy).
 
+- `/fc-projetado` — **Fluxo de Caixa Projetado: PARCIAL (17/08/2026).** Só a seção **"Recebíveis por plataforma"** existe (estrutura pronta, **zero plataforma integrada** — todas mostram "aguardando integração", nenhum número inventado). Contrato em `lib/data/types.ts` (`Recebiveis`/`RecebiveisPlataforma`/`RecebivelDia` + `getRecebiveis?()`); roster e ordem da fila em `lib/data/recebiveis.ts` (Mercado Pago → Shopee → TikTok → Amazon → SHEIN → Magalu → B2B); UI em `components/RecebiveisPorPlataforma.tsx` (faixas D+7/D+15/D+30/+30 e cronograma dia a dia, calculados no client a partir de `dias[]`). Para ligar uma plataforma: preencher `total`/`disponivel`/`dias` no `getRecebiveis` do `supabaseProvider` e virar `integrado: true` — a UI não muda. **Faltam:** saídas projetadas (contas a pagar Omie) e saldo projetado por dia.
+
 **Stubs (placeholder vazio — verificado: usam `<Placeholder/>`):**
-- `/fc-projetado` — **Fluxo de Caixa Projetado: NÃO construído.**
 - `/previsao-impostos` — **Previsão de Impostos: NÃO construído.**
 
 ## Integrações por canal
@@ -178,7 +179,7 @@ Padrão comum: OAuth com `refresh_token` **só no Vault**; `*_oauth_state` (linh
 ## Pendências conhecidas (28/07/2026)
 
 - **43 commits** foram pushados para `origin/main` em 28/07/2026 (HEAD remoto `a0e887d`) — repo sincronizado.
-- Módulos stub: **Fluxo de Caixa Projetado** e **Previsão de Impostos** (em desenho).
+- Módulo stub: **Previsão de Impostos** (em desenho). **F.C. Projetado** saiu do stub em 17/08/2026 — só a estrutura de "Recebíveis por plataforma", sem nenhuma plataforma integrada ainda (ver Módulos).
 - **Cron de ingestão do B2B/Tiny** (hoje manual via `b2b_fill_notas`).
 - **DAS/IR** (impostos sobre receita além de PIS/COFINS) — ainda não capturados.
 - **Vercel PAUSADA** (ver Deploy) — reautorização do ML bloqueada até despausar.

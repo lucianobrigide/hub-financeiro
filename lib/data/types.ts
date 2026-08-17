@@ -198,6 +198,48 @@ export interface DreItem {
   fonte: string;
 }
 
+/* ── Recebíveis (F.C. Projetado) ──────────────────────────────────────────────
+ * "Quanto cada plataforma ainda me deve, e em que dia esse dinheiro cai."
+ * REGRA DURA: nada estimado. Plataforma sem integração volta `integrado: false`
+ * e valores null — a UI diz "aguardando integração", nunca um número inventado.
+ */
+
+/** Um dia do cronograma de liberação de uma plataforma. */
+export interface RecebivelDia {
+  /** 'YYYY-MM-DD' — dia em que o dinheiro é liberado/cai. */
+  data: string;
+  /** Valor LÍQUIDO a receber nesse dia (R$), já deduzido do que a plataforma retém. */
+  valor: number;
+}
+
+/** Recebíveis de UMA plataforma. */
+export interface RecebiveisPlataforma {
+  /** Slug estável, ex.: 'mercado-pago', 'shopee'. */
+  id: string;
+  nome: string;
+  /** De onde o número sai (ex.: "API do Mercado Pago — released/pending"). Texto honesto. */
+  fonte: string;
+  /** false = ainda sem integração. Valores ficam null; a UI nunca mostra R$ 0 falso. */
+  integrado: boolean;
+  /** Σ dos dias a liberar. null quando não integrado. */
+  total: number | null;
+  /** Já liberado e parado na conta da plataforma (ainda não sacado). null = sem dado. */
+  disponivel?: number | null;
+  /** Cronograma dia a dia. Vazio quando não integrado. */
+  dias: RecebivelDia[];
+  /** Quando o dado foi coletado ("17/08 03:12"). null = sem coleta ainda. */
+  atualizadoEm?: string | null;
+  /** Observação exibida no card (ex.: "API em conexão — próxima da fila"). */
+  nota?: string | null;
+}
+
+/** Payload da seção "Recebíveis por plataforma". */
+export interface Recebiveis {
+  /** Dia de referência (hoje, BRT) — as faixas (D+7, D+15…) são contadas a partir dele. */
+  referencia: string;
+  plataformas: RecebiveisPlataforma[];
+}
+
 export interface DataProvider {
   /**
    * Lista os meses disponíveis (mais recente primeiro).
@@ -251,6 +293,12 @@ export interface DataProvider {
    * fechamento oficial (omie_dre_drift). OPCIONAL: só o provider Supabase implementa.
    */
   getDreDrift?(month: string): Promise<DreDrift | null>;
+  /**
+   * Recebíveis por plataforma (aba F.C. Projetado): quanto cada canal ainda deve
+   * e em que dia libera. `null` => provider sem suporte (a UI mostra "sem dados").
+   * OPCIONAL: providers antigos não implementam.
+   */
+  getRecebiveis?(): Promise<Recebiveis | null>;
 }
 
 /** Resultado da trava de fechamento (RPC omie_dre_drift). */

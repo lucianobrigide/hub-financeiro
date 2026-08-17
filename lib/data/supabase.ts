@@ -1,6 +1,7 @@
 import "server-only";
 
-import type { CronsStatus, DashboardData, DataProvider, DreDrift, DreItem, Month, PlataformaDre, SerieDiariaItem, SkuDre, VendaDiaria } from "./types";
+import type { CronsStatus, DashboardData, DataProvider, DreDrift, DreItem, Month, PlataformaDre, Recebiveis, SerieDiariaItem, SkuDre, VendaDiaria } from "./types";
+import { hojeBrt, recebiveisVazios } from "./recebiveis";
 
 /** Labels das 6 deduções do mini-DRE, na ordem do card. */
 const DEDUCAO_LABELS = ["Comissão", "Frete", "ADS", "Full", "Afiliados", "CMV"];
@@ -439,6 +440,21 @@ export const supabaseProvider: DataProvider = {
   // Trava de fechamento: vivo × snapshot congelado do mês (omie_dre_drift).
   async getDreDrift(month: string): Promise<DreDrift | null> {
     return (await rpc<DreDrift>("omie_dre_drift", { p_month: month })) ?? null;
+  },
+
+  /**
+   * Recebíveis por plataforma (F.C. Projetado).
+   *
+   * Estado 17/08/2026: NENHUMA plataforma integrada ainda — a estrutura existe,
+   * os números não. Retorna o roster inteiro como "aguardando integração"
+   * (REGRA DURA: sem número inventado, sem R$ 0 falso).
+   *
+   * Para ligar uma plataforma: ingerir o cronograma de liberação numa tabela/RPC
+   * própria (ex.: `mp_recebiveis(de, ate)`) e preencher aqui `integrado: true`,
+   * `total`, `disponivel` e `dias[]`. A UI não muda.
+   */
+  async getRecebiveis(): Promise<Recebiveis> {
+    return { referencia: hojeBrt(), plataformas: recebiveisVazios() };
   },
 
   // Linhas ACIMA da Margem de Contribuição, consolidadas de TODOS os canais (reusa getDashboard).

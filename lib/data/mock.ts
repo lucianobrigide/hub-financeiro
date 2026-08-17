@@ -1,4 +1,5 @@
-import type { CronsStatus, DashboardData, DataProvider, Month, PlataformaDre } from "./types";
+import type { CronsStatus, DashboardData, DataProvider, Month, PlataformaDre, Recebiveis } from "./types";
+import { hojeBrt, recebiveisVazios } from "./recebiveis";
 
 /** Labels das 6 deduções do mini-DRE, na ordem do card. */
 const DEDUCAO_LABELS = ["Comissão", "Frete", "ADS", "Full", "Afiliados", "CMV"];
@@ -153,5 +154,35 @@ export const mockProvider: DataProvider = {
   // Mock não tem crons reais — a página mostra "sem dados".
   async getCronsStatus(): Promise<CronsStatus | null> {
     return null;
+  },
+  /**
+   * Recebíveis mockados: SÓ o Mercado Pago vem preenchido (com um cronograma
+   * sintético), para exercitar a UI da seção sem banco. As demais plataformas
+   * ficam "aguardando integração", como no provider real.
+   */
+  async getRecebiveis(): Promise<Recebiveis> {
+    const hoje = hojeBrt();
+    const base = new Date(`${hoje}T12:00:00Z`);
+    const emDias = (n: number) =>
+      new Date(base.getTime() + n * 86400000).toISOString().slice(0, 10);
+    // Cronograma fake: valores decrescentes ao longo de 45 dias.
+    const dias = [1, 2, 3, 5, 8, 12, 16, 21, 27, 34, 45].map((n) => ({
+      data: emDias(n),
+      valor: Math.round((9000 - n * 120) * 100) / 100,
+    }));
+    const plataformas = recebiveisVazios().map((p) =>
+      p.id === "mercado-pago"
+        ? {
+            ...p,
+            integrado: true,
+            nota: "dados MOCK — sem banco",
+            atualizadoEm: "mock",
+            disponivel: 12345.67,
+            total: Math.round(dias.reduce((s, d) => s + d.valor, 0) * 100) / 100,
+            dias,
+          }
+        : p,
+    );
+    return { referencia: hoje, plataformas };
   },
 };
