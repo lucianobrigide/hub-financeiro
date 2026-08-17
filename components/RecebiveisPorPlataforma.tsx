@@ -46,6 +46,85 @@ function ddmm(data: string): string {
   return `${d}/${m}`;
 }
 
+/**
+ * Barrinha proporcional. `frac` (0..1) é a fatia preenchida; o trilho fica
+ * sempre visível para dar a referência de escala.
+ */
+function Barra({ frac, cor = COLORS.cyan }: { frac: number; cor?: string }) {
+  const f = Math.max(0, Math.min(1, Number.isFinite(frac) ? frac : 0));
+  return (
+    <div
+      className="h-2 w-full overflow-hidden rounded-full"
+      style={{ background: `${COLORS.panelBorder}` }}
+    >
+      <div
+        className="h-full rounded-full"
+        // 2px de piso: valor pequeno mas existente não pode sumir e virar "zero".
+        style={{ width: f > 0 ? `max(2px, ${(f * 100).toFixed(2)}%)` : 0, background: cor }}
+      />
+    </div>
+  );
+}
+
+/** Bloco de uma faixa (Até 7 dias, 8 a 15…) com a barrinha da participação. */
+function FaixaBar({
+  label,
+  valor,
+  frac,
+}: {
+  label: string;
+  valor: number;
+  frac: number;
+}) {
+  return (
+    <div
+      className="rounded-lg border px-2 py-1.5"
+      style={{ borderColor: COLORS.panelBorder, background: COLORS.panel }}
+    >
+      <div className="text-[10px] uppercase tracking-wider" style={{ color: COLORS.muted }}>
+        {label}
+      </div>
+      <div
+        className="mb-1.5 text-sm font-semibold"
+        style={{ color: valor > 0 ? COLORS.white : COLORS.muted }}
+      >
+        {brl(valor)}
+      </div>
+      <Barra frac={frac} />
+    </div>
+  );
+}
+
+/** Uma linha do cronograma: data · barra proporcional ao maior dia · valor. */
+function LinhaDia({
+  data,
+  dPlus,
+  valor,
+  frac,
+}: {
+  data: string;
+  dPlus: number;
+  valor: number;
+  frac: number;
+}) {
+  return (
+    <li className="flex items-center gap-2 text-xs">
+      <span className="w-[38px] shrink-0 tabular-nums" style={{ color: COLORS.muted }}>
+        {data}
+      </span>
+      <span className="w-[34px] shrink-0 text-[10px] tabular-nums" style={{ color: `${COLORS.muted}99` }}>
+        D+{dPlus}
+      </span>
+      <span className="min-w-0 flex-1">
+        <Barra frac={frac} />
+      </span>
+      <span className="w-[92px] shrink-0 text-right font-semibold tabular-nums text-white">
+        {brl(valor)}
+      </span>
+    </li>
+  );
+}
+
 function Tag({ cor, children }: { cor: string; children: React.ReactNode }) {
   return (
     <span
@@ -64,8 +143,12 @@ function CardPlataforma({
   p: RecebiveisPlataforma;
   referencia: string;
 }) {
-  const [aberto, setAberto] = useState(false);
+  // Cronograma já aberto quando há dado: as barras SÃO a leitura principal do card.
+  const [aberto, setAberto] = useState(true);
   const faixas = p.integrado ? porFaixa(p, referencia) : null;
+  const somaFaixas = faixas ? faixas.reduce((s, v) => s + v, 0) : 0;
+  // Escala das barras do cronograma: o maior dia = barra cheia.
+  const maiorDia = p.dias.reduce((m, d) => Math.max(m, d.valor), 0);
 
   return (
     <div
@@ -110,21 +193,12 @@ function CardPlataforma({
         <>
           <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
             {FAIXAS.map((f, i) => (
-              <div
+              <FaixaBar
                 key={f.label}
-                className="rounded-lg border px-2 py-1.5 text-center"
-                style={{ borderColor: COLORS.panelBorder, background: COLORS.panel }}
-              >
-                <div className="text-[10px] uppercase tracking-wider" style={{ color: COLORS.muted }}>
-                  {f.label}
-                </div>
-                <div
-                  className="text-sm font-semibold"
-                  style={{ color: faixas[i] > 0 ? COLORS.white : COLORS.muted }}
-                >
-                  {brl(faixas[i])}
-                </div>
-              </div>
+                label={f.label}
+                valor={faixas[i]}
+                frac={somaFaixas > 0 ? faixas[i] / somaFaixas : 0}
+              />
             ))}
           </div>
 
@@ -152,18 +226,16 @@ function CardPlataforma({
             )}
           </div>
 
-          {aberto && (
-            <ul className="mt-3 space-y-1 border-t pt-3" style={{ borderColor: COLORS.panelBorder }}>
+          {aberto && p.dias.length > 0 && (
+            <ul className="mt-3 space-y-1.5 border-t pt-3" style={{ borderColor: COLORS.panelBorder }}>
               {p.dias.map((d) => (
-                <li key={d.data} className="flex justify-between text-xs">
-                  <span style={{ color: COLORS.muted }}>
-                    {ddmm(d.data)}{" "}
-                    <span className="opacity-60">
-                      (D+{Math.max(difDias(referencia, d.data), 0)})
-                    </span>
-                  </span>
-                  <span className="font-semibold text-white">{brl(d.valor)}</span>
-                </li>
+                <LinhaDia
+                  key={d.data}
+                  data={ddmm(d.data)}
+                  dPlus={Math.max(difDias(referencia, d.data), 0)}
+                  valor={d.valor}
+                  frac={maiorDia > 0 ? d.valor / maiorDia : 0}
+                />
               ))}
             </ul>
           )}
@@ -239,16 +311,12 @@ export function RecebiveisPorPlataforma({ dados }: { dados: Recebiveis | null })
         {integradas.length > 0 && (
           <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
             {FAIXAS.map((f, i) => (
-              <div
+              <FaixaBar
                 key={f.label}
-                className="rounded-lg border px-2 py-1.5 text-center"
-                style={{ borderColor: COLORS.panelBorder, background: COLORS.panel }}
-              >
-                <div className="text-[10px] uppercase tracking-wider" style={{ color: COLORS.muted }}>
-                  {f.label}
-                </div>
-                <div className="text-sm font-semibold text-white">{brl(faixasGerais[i])}</div>
-              </div>
+                label={f.label}
+                valor={faixasGerais[i]}
+                frac={totalGeral > 0 ? faixasGerais[i] / totalGeral : 0}
+              />
             ))}
           </div>
         )}
