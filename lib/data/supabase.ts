@@ -109,6 +109,32 @@ async function rpc<T>(fn: string, args: Record<string, unknown> = {}): Promise<T
   return (await resp.json()) as T;
 }
 
+/** Retorno do RPC `mp_recebiveis` (cronograma de liberação do Mercado Pago). */
+interface MpRecebiveisRow {
+  /** 'YYYY-MM-DD' (hoje, BRT). */
+  referencia: string;
+  /** Σ do líquido a liberar de hoje em diante. */
+  total: number;
+  /** Quantos pagamentos compõem o total. */
+  pagamentos: number;
+  /** Pagamentos sem `net_received_amount` na API — ficam FORA do total (nada estimado). */
+  sem_liquido: number;
+  /** ISO da última ingestão. */
+  atualizado_em: string | null;
+  dias: { data: string; valor: number }[];
+}
+
+/** "17/08 15:27" (BRT) a partir de um ISO — usado no "atualizado" dos cards. */
+function fmtDataHora(iso: string): string {
+  return new Date(iso).toLocaleString("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 /** Uma linha do RPC ml_dre_diario (faturamento válido + custos DIRETOS do dia). */
 interface DreDiaRow {
   data: string;
@@ -445,16 +471,46 @@ export const supabaseProvider: DataProvider = {
   /**
    * Recebíveis por plataforma (F.C. Projetado).
    *
-   * Estado 17/08/2026: NENHUMA plataforma integrada ainda — a estrutura existe,
-   * os números não. Retorna o roster inteiro como "aguardando integração"
-   * (REGRA DURA: sem número inventado, sem R$ 0 falso).
+   * INTEGRADO (17/08/2026): **Mercado Pago** — RPC `mp_recebiveis` (tabela
+   * `mp_pagamentos`, ingestão `mp_fill_recebiveis`). Valor = líquido REAL que
+   * cai na conta (`net_received_amount`, já sem comissão ML/frete/taxa MP/cupom),
+   * agregado por `money_release_date`. Nada estimado.
    *
-   * Para ligar uma plataforma: ingerir o cronograma de liberação numa tabela/RPC
-   * própria (ex.: `mp_recebiveis(de, ate)`) e preencher aqui `integrado: true`,
-   * `total`, `disponivel` e `dias[]`. A UI não muda.
+   * As demais plataformas seguem "aguardando integração" — para ligar cada uma,
+   * preencher `total`/`disponivel`/`dias` e virar `integrado: true`. A UI não muda.
    */
   async getRecebiveis(): Promise<Recebiveis> {
-    return { referencia: hojeBrt(), plataformas: recebiveisVazios() };
+    const plataformas = recebiveisVazios();
+    const referencia = hojeBrt();
+
+    // Mercado Pago. Falha de RPC não derruba a página: o canal segue "sem dados".
+    try {
+      const mp = await rpc<MpRecebiveisRow>("mp_recebiveis");
+      const i = plataformas.findIndex((p) => p.id === "mercado-pago");
+      if (mp && i >= 0) {
+        // Cobertura honesta: pagamento sem líquido na API não é estimado — fica de
+        // fora do total e vira nota no card, nunca um número inventado.
+        const nota =
+          mp.sem_liquido > 0
+            ? `${mp.pagamentos} pagamentos a liberar · ${mp.sem_liquido} ainda sem valor líquido na API (fora do total)`
+            : `${mp.pagamentos} pagamentos a liberar — líquido real da API, sem estimativa`;
+        plataformas[i] = {
+          ...plataformas[i],
+          integrado: true,
+          total: mp.total,
+          // Saldo já liberado na conta MP: endpoint de balance responde 403 para
+          // esta credencial (ver CLAUDE.md/Pendências) — sem dado, não inventa.
+          disponivel: null,
+          dias: (mp.dias ?? []).map((d) => ({ data: d.data, valor: d.valor })),
+          atualizadoEm: mp.atualizado_em ? fmtDataHora(mp.atualizado_em) : null,
+          nota,
+        };
+      }
+    } catch {
+      // mantém o card como "aguardando integração"
+    }
+
+    return { referencia, plataformas };
   },
 
   // Linhas ACIMA da Margem de Contribuição, consolidadas de TODOS os canais (reusa getDashboard).

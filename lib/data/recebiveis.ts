@@ -18,11 +18,13 @@ export const RECEBIVEIS_ROSTER: readonly Omit<
   "total" | "dias" | "disponivel" | "atualizadoEm"
 >[] = [
   {
+    // INTEGRADO 17/08/2026 (RPC mp_recebiveis). Usa a MESMA credencial do Mercado
+    // Livre — api.mercadopago.com aceita o access_token de ml_oauth_state.
     id: "mercado-pago",
     nome: "Mercado Pago",
-    fonte: "API do Mercado Pago — saldo liberado + a liberar (vendas do Mercado Livre)",
+    fonte: "API do Mercado Pago — pagamentos a liberar (vendas do Mercado Livre), líquido real por data de liberação",
     integrado: false,
-    nota: "próxima da fila — API em conexão",
+    nota: null,
   },
   {
     id: "shopee",
