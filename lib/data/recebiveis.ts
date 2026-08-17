@@ -62,9 +62,13 @@ export const RECEBIVEIS_ROSTER: readonly Omit<
     nota: null,
   },
   {
+    // INTEGRADO 17/08/2026 (RPC shein_recebiveis). Cronograma PARCIAL: o check
+    // order traz estimate_pay_time (data estimada pela PRÓPRIA SHEIN), mas só
+    // nasce quando o pedido chega ao status 5 (~2 semanas após a venda). Pedido
+    // mais novo entra no total sem data. Os dois lados batem centavo a centavo.
     id: "shein",
     nome: "SHEIN",
-    fonte: "check order / repasse semanal — já ingerido em shein_settlement",
+    fonte: "check order com data estimada pela SHEIN + pedidos que ainda não geraram check order",
     integrado: false,
     nota: null,
   },

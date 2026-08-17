@@ -171,6 +171,22 @@ interface AzRecebiveisRow {
   dias: { data: string; valor: number }[];
 }
 
+/**
+ * Retorno do RPC `shein_recebiveis`. Cronograma PARCIAL: `dias` vem do
+ * `estimate_pay_time` do check order; `sem_data` são os pedidos que ainda não
+ * geraram check order (valor real, sem data).
+ */
+interface SheinRecebiveisRow {
+  referencia: string;
+  total: number;
+  com_data: number;
+  sem_data: number;
+  pedidos_sem_data: number;
+  mais_antigo: string | null;
+  atualizado_em: string | null;
+  dias: { data: string; valor: number }[];
+}
+
 /** "84,6%" — percentual no formato BR para as notas dos cards. */
 function pctBr(v: number): string {
   return `${v.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
@@ -625,6 +641,37 @@ export const supabaseProvider: DataProvider = {
           valorSemData: az.sem_data !== 0 ? az.sem_data : null,
           dias: (az.dias ?? []).map((d) => ({ data: d.data, valor: d.valor })),
           atualizadoEm: az.atualizado_em ? fmtDataHora(az.atualizado_em) : null,
+          nota: partes.join(" · "),
+        };
+      }
+    } catch {
+      // mantém o card como "aguardando integração"
+    }
+
+    // SHEIN. Cronograma PARCIAL, como a Amazon, mas por outro motivo: o check
+    // order traz `estimate_pay_time` (data que a própria SHEIN estima), só que
+    // ele nasce ~2 semanas após a venda. Pedido novo tem valor real e ainda não
+    // tem data — vai em `valorSemData`.
+    try {
+      const sh = await rpc<SheinRecebiveisRow>("shein_recebiveis");
+      const i = plataformas.findIndex((p) => p.id === "shein");
+      if (sh && i >= 0) {
+        const partes = [
+          `${brlSimples(sh.com_data)} com data estimada pela SHEIN (check order emitido)`,
+        ];
+        if (sh.pedidos_sem_data > 0) {
+          partes.push(
+            `${brlSimples(sh.sem_data)} em ${sh.pedidos_sem_data} pedidos que ainda não geraram check order${sh.mais_antigo ? `, o mais antigo de ${fmtDia(sh.mais_antigo)}` : ""}`,
+          );
+        }
+        plataformas[i] = {
+          ...plataformas[i],
+          integrado: true,
+          total: sh.total,
+          disponivel: null,
+          valorSemData: sh.sem_data !== 0 ? sh.sem_data : null,
+          dias: (sh.dias ?? []).map((d) => ({ data: d.data, valor: d.valor })),
+          atualizadoEm: sh.atualizado_em ? fmtDataHora(sh.atualizado_em) : null,
           nota: partes.join(" · "),
         };
       }
