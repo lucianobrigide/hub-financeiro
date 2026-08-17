@@ -18,6 +18,10 @@ const DEDUCAO_LABELS_TT = ["Comissão", "Taxas", "Frete", "ADS", "Afiliados", "C
  *  que o preço pago. Identidade: pago − (comissão + taxa − subsídio) =
  *  estimatedGrossIncome da API, centavo a centavo. Settlement é fase futura. */
 const DEDUCAO_LABELS_SHEIN = ["Comissão", "Taxa de serviço", "Subsídio SHEIN", "CMV"];
+/** Magalu (MVP 17/08/2026): bruta = total PAGO pelo cliente (amounts.total já é pós-desconto;
+ *  o desconto NÃO é dedução — entrar seria dupla contagem). Comissão e frete REAIS do pedido
+ *  (/seller/v1/orders). Repasse/settlement (Análise Financeira) é fase futura. */
+const DEDUCAO_LABELS_MAGALU = ["Comissão", "Frete", "CMV"];
 
 /** DRE de uma plataforma sem dado (tudo null) — UI mostra "sem dados". */
 function dreVazio(nome: string): PlataformaDre {
@@ -64,6 +68,7 @@ const CANAIS = [
   { id: "tiktok", nome: "TikTok Shop", key: "tt" },
   { id: "amazon", nome: "Amazon", key: "az" },
   { id: "shein", nome: "SHEIN", key: "sh" },
+  { id: "magalu", nome: "Magalu", key: "mg" },
   { id: "vendas-internas", nome: "B2B", key: "b2b" },
 ] as const;
 
@@ -245,6 +250,26 @@ interface DedShein {
 
 /** Retorno do RPC shein_cmv (custo × quantidade, via ml_custo_produto com vigência). */
 interface CmvShein {
+  cmv_total: number;
+  itens_com_custo: number;
+  itens_total: number;
+}
+
+/** Retorno do RPC magalu_faturamento (bruta = Σ amounts.total PAGO pelo cliente, status ≠ cancelled; competência created_at BRT). */
+interface FatMg {
+  faturamento_bruto: number;
+  total_pedidos: number;
+}
+
+/** Retorno do RPC magalu_deducoes (comissão e frete REAIS do pedido; desconto é informativo — já embutido na bruta). */
+interface DedMg {
+  comissao: number;
+  frete: number;
+  desconto: number;
+}
+
+/** Retorno do RPC magalu_cmv (custo × quantidade, via ml_custo_produto com vigência). */
+interface CmvMg {
   cmv_total: number;
   itens_com_custo: number;
   itens_total: number;
@@ -567,6 +592,12 @@ export const supabaseProvider: DataProvider = {
     const shDed = await rpc<DedShein>("shein_deducoes", { p_month: mes });
     // SHEIN — CMV (shein_itens × ml_custo_produto com vigência; 1 unidade por goodsId).
     const shCmv = await rpc<CmvShein>("shein_cmv", { p_month: mes });
+    // Magalu — bruta (amounts.total pago pelo cliente, régua não-cancelado; competência created_at BRT).
+    const mgFat = await rpc<FatMg>("magalu_faturamento", { p_month: mes });
+    // Magalu — comissão e frete REAIS do pedido (/seller/v1/orders; desconto já embutido na bruta).
+    const mgDed = await rpc<DedMg>("magalu_deducoes", { p_month: mes });
+    // Magalu — CMV (magalu_itens × ml_custo_produto com vigência, unaccent no sku).
+    const mgCmv = await rpc<CmvMg>("magalu_cmv", { p_month: mes });
     // B2B — bruta (NFs por data_emissao, valor_total com IPI).
     const b2bFat = await rpc<FatB2b>("b2b_faturamento", { p_month: mes });
     // B2B — CMV (cruza b2b_itens × ml_custo_produto).
@@ -613,6 +644,7 @@ export const supabaseProvider: DataProvider = {
       (ttFat.faturamento_liquido ?? 0) + // TikTok (líquido)
       azLiquido +                        // Amazon (bruto − refund)
       Math.round(((shFat.faturamento_bruto ?? 0) - (shFat.cancel_devolucoes ?? 0)) * 100) / 100 + // SHEIN (bruto − devoluções)
+      (mgFat.faturamento_bruto ?? 0) +   // Magalu (líquido = bruto, MVP)
       (b2bFat.faturamento_bruto ?? 0);   // B2B (líquido = bruto)
     const totalPedidos =
       (a.totalPedidosValidos ?? 0) +     // ML: paid + partially_refunded
@@ -620,6 +652,7 @@ export const supabaseProvider: DataProvider = {
       (ttFat.total_pedidos ?? 0) +       // TikTok: liquidado
       (azFat.total_pedidos ?? 0) +       // Amazon: Shipped+Unshipped
       (shFat.total_pedidos ?? 0) +       // SHEIN: não-cancelados (MVP)
+      (mgFat.total_pedidos ?? 0) +       // Magalu: não-cancelados (MVP)
       (b2bFat.total_notas ?? 0);         // B2B: NFs emitidas
     const ticketMedio = totalPedidos > 0 ? totalVenda / totalPedidos : 0;
 
@@ -655,6 +688,7 @@ export const supabaseProvider: DataProvider = {
         { nome: "Tik Tok", valor: ttFat.faturamento_bruto || null },
         { nome: "Amazon", valor: azFat.faturamento_bruto || null },
         { nome: "SHEIN", valor: shFat.faturamento_bruto || null },
+        { nome: "Magalu", valor: mgFat.faturamento_bruto || null },
         { nome: "B2B", valor: b2bFat.faturamento_bruto || null },
       ],
       // Card ML: topo REAL + as 6 deduções (Comissão/Frete/ADS/Full/CMV reais; Afiliados=0)
@@ -866,6 +900,36 @@ export const supabaseProvider: DataProvider = {
           };
         })(),
         (() => {
+          // Magalu (MVP): bruta = amounts.total PAGO pelo cliente (pós-desconto — o desconto
+          // NÃO é dedução, seria dupla contagem). Comissão/frete REAIS do pedido
+          // (/seller/v1/orders). Repasse (Análise Financeira) é fase futura.
+          const mgBruto = mgFat.faturamento_bruto || null;
+          const mgLiquido = mgBruto;
+          const mgCmvVal = mgCmv.itens_total > 0 ? mgCmv.cmv_total : null;
+          const cmvNotaMg = mgCmv.itens_total > 0
+            ? `${mgCmv.itens_com_custo} de ${mgCmv.itens_total} com custo`
+            : undefined;
+          const deducoesMg = DEDUCAO_LABELS_MAGALU.map((label): { label: string; valor: number | null; nota?: string } => {
+            if (label === "Comissão") return { label, valor: mgDed.comissao || null };
+            if (label === "Frete") return { label, valor: mgDed.frete || null };
+            if (label === "CMV") return { label, valor: mgCmvVal, nota: cmvNotaMg };
+            return { label, valor: null };
+          });
+          const totalDeducoesMg = deducoesMg.reduce((s, d) => s + (d.valor ?? 0), 0);
+          const mgMc = mgLiquido != null
+            ? Math.round((mgLiquido - totalDeducoesMg) * 100) / 100
+            : null;
+          return {
+            ...dreVazio("Magalu"),
+            faturamentoBruto: mgBruto,
+            cancelDevolucoes: mgBruto != null ? 0 : null,
+            faturamentoLiquido: mgLiquido,
+            deducoes: deducoesMg,
+            mc: mgMc,
+            mcNota: mgBruto != null ? "valores do pedido — repasse na fase 100%" : null,
+          };
+        })(),
+        (() => {
           const viBruto = b2bFat.faturamento_bruto || null;
           const viLiquido = viBruto;
           const viCmvVal = b2bCmv.itens_total > 0 ? b2bCmv.cmv_total : null;
@@ -943,6 +1007,7 @@ export const supabaseProvider: DataProvider = {
       tt: mcDe("TikTok Shop"),
       az: mcDe("Amazon"),
       sh: mcDe("SHEIN"),
+      mg: mcDe("Magalu"),
       b2b: mcDe("B2B"),
     };
     const seriePorKey: Record<string, SerieDiariaItem[]> = {};
@@ -987,6 +1052,7 @@ export const supabaseProvider: DataProvider = {
       tt: ttFat.total_pedidos ?? 0,
       az: azFat.total_pedidos ?? 0,
       sh: shFat.total_pedidos ?? 0,
+      mg: mgFat.total_pedidos ?? 0,
       b2b: b2bFat.total_notas ?? 0,
     };
     result.porCanal = CANAIS.map((cm) => {
@@ -1052,6 +1118,7 @@ function vazio(): DashboardData {
       { nome: "Tik Tok", valor: null },
       { nome: "Amazon", valor: null },
       { nome: "SHEIN", valor: null },
+      { nome: "Magalu", valor: null },
       { nome: "B2B", valor: null },
     ],
     plataformasDre: [
@@ -1060,6 +1127,7 @@ function vazio(): DashboardData {
       dreVazio("TikTok Shop"),
       dreVazio("Amazon"),
       dreVazio("SHEIN"),
+      dreVazio("Magalu"),
       dreVazio("B2B"),
     ],
     vendasDiarias: [],

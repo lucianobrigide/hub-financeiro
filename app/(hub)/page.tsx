@@ -10,6 +10,7 @@ const SLUG: Record<string, string> = {
   "TikTok Shop": "tiktok",
   Amazon: "amazon",
   SHEIN: "shein",
+  Magalu: "magalu",
   B2B: "vendas-internas",
 };
 
