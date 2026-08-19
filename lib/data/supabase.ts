@@ -236,13 +236,15 @@ interface DreDiaRow {
 
 /** Uma linha do RPC dre_diario_canais (faturamento + custos diretos/dia por canal, exceto ML). */
 interface CanalDiaRow {
-  canal: string; // 'sp' | 'tt' | 'az' | 'b2b'
+  canal: string; // 'sp' | 'tt' | 'az' | 'b2b' | 'sh'
   data: string; // 'DD/MM'
   fat: number;
   cmv: number;
   comissao: number;
   frete: number;
   ads: number;
+  /** Crédito da plataforma, POSITIVO no RPC (só SHEIN ≠ 0). Abate as deduções do dia. */
+  subsidio: number;
 }
 
 interface AggReal {
@@ -1262,20 +1264,25 @@ export const supabaseProvider: DataProvider = {
     // TikTok/Amazon/B2B fecham exatos (resíduo ~0); ML e Shopee têm rateio pequeno.
     const ordDia = (dm: string) => Number(dm.split("/")[0]);
     const r2 = (n: number) => Math.round(n * 100) / 100;
-    type DiaComp = { data: string; fat: number; cmv: number; comissao: number; frete: number; ads: number };
-    // M.C. diária = fat − (cmv+comissão+frete+ads REAIS do dia) − "outras" (rateio do resíduo
-    // mensal: afiliados/DIFAL/Full/devoluções), de modo que Σ(M.C.) = M.C. do mês do canal.
-    // Cada item carrega a COMPOSIÇÃO (cmv/comissão/frete/ads/outras) → gráfico de despesas.
+    type DiaComp = { data: string; fat: number; cmv: number; comissao: number; frete: number; ads: number; subsidio: number };
+    // M.C. diária = fat − (cmv+comissão+frete+ads REAIS do dia) + subsídio (crédito da
+    // plataforma) − "outras" (rateio do resíduo mensal: afiliados/DIFAL/Full/devoluções),
+    // de modo que Σ(M.C.) = M.C. do mês do canal.
+    // Cada item carrega a COMPOSIÇÃO (cmv/comissão/frete/ads/subsídio/outras) → gráfico de
+    // despesas. O subsídio sai NEGATIVO no item para Σ(segmentos) = faturamento.
     const reconcilia = (rows: DiaComp[], mcMes: number | null): SerieDiariaItem[] => {
       const fatMes = rows.reduce((s, r) => s + r.fat, 0);
-      const diretaSoma = rows.reduce((s, r) => s + (r.fat - r.cmv - r.comissao - r.frete - r.ads), 0);
+      const diretaSoma = rows.reduce(
+        (s, r) => s + (r.fat - r.cmv - r.comissao - r.frete - r.ads + r.subsidio),
+        0,
+      );
       const residual = mcMes != null ? diretaSoma - mcMes : 0;
       return rows
         .slice()
         .sort((a, b) => ordDia(a.data) - ordDia(b.data))
         .map((r) => {
           const outras = fatMes > 0 ? residual * (r.fat / fatMes) : 0;
-          const mc = r.fat - r.cmv - r.comissao - r.frete - r.ads - outras;
+          const mc = r.fat - r.cmv - r.comissao - r.frete - r.ads + r.subsidio - outras;
           return {
             data: r.data,
             faturamento: r2(r.fat),
@@ -1283,6 +1290,7 @@ export const supabaseProvider: DataProvider = {
             comissao: r2(r.comissao),
             frete: r2(r.frete),
             ads: r2(r.ads),
+            subsidio: r2(-r.subsidio),
             outras: r2(outras),
             mc: r2(mc),
           };
@@ -1292,12 +1300,13 @@ export const supabaseProvider: DataProvider = {
     // Linhas (fat + componentes de custo) por canal.
     const rowsPorCanal: Record<string, DiaComp[]> = {
       ml: (diario ?? []).map((d) => ({
-        data: d.data, fat: d.fat, cmv: d.cmv, comissao: d.comissao, frete: d.frete, ads: d.ads,
+        data: d.data, fat: d.fat, cmv: d.cmv, comissao: d.comissao, frete: d.frete, ads: d.ads, subsidio: 0,
       })),
     };
     for (const r of canais ?? []) {
       (rowsPorCanal[r.canal] ??= []).push({
         data: r.data, fat: r.fat, cmv: r.cmv, comissao: r.comissao, frete: r.frete, ads: r.ads,
+        subsidio: r.subsidio ?? 0,
       });
     }
     const mcDe = (nome: string) => result.plataformasDre.find((p) => p.nome === nome)?.mc ?? null;
@@ -1317,17 +1326,18 @@ export const supabaseProvider: DataProvider = {
 
     // Série TOTAL = merge das séries por canal, por dia (soma fat, M.C. e composição).
     const diaTot = new Map<string, {
-      fat: number; mc: number; cmv: number; comissao: number; frete: number; ads: number; outras: number;
+      fat: number; mc: number; cmv: number; comissao: number; frete: number; ads: number; subsidio: number; outras: number;
     }>();
     for (const key of Object.keys(seriePorKey)) {
       for (const s of seriePorKey[key]) {
-        const cur = diaTot.get(s.data) ?? { fat: 0, mc: 0, cmv: 0, comissao: 0, frete: 0, ads: 0, outras: 0 };
+        const cur = diaTot.get(s.data) ?? { fat: 0, mc: 0, cmv: 0, comissao: 0, frete: 0, ads: 0, subsidio: 0, outras: 0 };
         cur.fat += s.faturamento;
         cur.mc += s.mc;
         cur.cmv += s.cmv ?? 0;
         cur.comissao += s.comissao ?? 0;
         cur.frete += s.frete ?? 0;
         cur.ads += s.ads ?? 0;
+        cur.subsidio += s.subsidio ?? 0;
         cur.outras += s.outras ?? 0;
         diaTot.set(s.data, cur);
       }
@@ -1342,6 +1352,7 @@ export const supabaseProvider: DataProvider = {
         comissao: r2(v.comissao),
         frete: r2(v.frete),
         ads: r2(v.ads),
+        subsidio: r2(v.subsidio),
         outras: r2(v.outras),
       }));
 

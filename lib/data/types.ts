@@ -112,6 +112,10 @@ export interface SerieDiariaItem {
   comissao?: number;
   frete?: number;
   ads?: number;
+  /** Crédito da plataforma no dia, NEGATIVO (hoje só SHEIN: desconto de promoção que
+   *  ela banca — liquida sobre preço de tabela − promo, não sobre o que o cliente pagou).
+   *  Negativo para o somatório dos segmentos continuar batendo com o faturamento. */
+  subsidio?: number;
   /** Custos de ciclo mensal rateados no dia (afiliados/DIFAL/Full/devoluções). */
   outras?: number;
 }

@@ -14,11 +14,13 @@ import type { SerieDiariaItem } from "@/lib/data/types";
 import { COLORS, Panel, Na, brl, pct } from "./ui";
 
 // Composição do dia (empilhada): despesas + M.C. somam o faturamento.
+// "Subsídio" é CRÉDITO — vem negativo da série e empilha abaixo do eixo.
 const SEGMENTOS = [
   { key: "cmv", label: "CMV", cor: "#ff9f1c" },
   { key: "comissao", label: "Comissão", cor: "#9d4edd" },
   { key: "frete", label: "Frete", cor: "#4895ef" },
   { key: "ads", label: "ADS", cor: "#f72585" },
+  { key: "subsidio", label: "Subsídio", cor: "#2ec4b6" },
   { key: "outras", label: "Outras", cor: "#6c757d" },
   { key: "mc", label: "M.C.", cor: COLORS.green },
 ] as const;
@@ -116,6 +118,9 @@ export function GraficoDiarioDetalhado({
       <div className="mt-2 text-[10px]" style={{ color: COLORS.muted }}>
         Cada barra = faturamento do dia decomposto: despesas reais (CMV, comissão, frete, ADS) +
         &ldquo;Outras&rdquo; (custos de ciclo mensal rateados) + a M.C. no topo.
+        &ldquo;Subsídio&rdquo; aparece abaixo do eixo por ser crédito da plataforma (SHEIN:
+        desconto de promoção que ela banca — o repasse é calculado sobre uma base maior que o
+        preço pago pelo cliente).
       </div>
     </Panel>
   );
