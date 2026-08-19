@@ -27,14 +27,16 @@ export const RECEBIVEIS_ROSTER: readonly Omit<
     nota: null,
   },
   {
-    // INTEGRADO 17/08/2026 (RPC shopee_recebiveis). ⚠️ SEM cronograma por AUSÊNCIA
-    // DE DADO, não por opção: nem a Open API nem o portal publicam a data de
-    // liberação (investigação completa no CLAUDE.md — o campo
-    // income_estimated_escrow_time do Seller Center vem 0 em 763 de 764 pedidos).
-    // Total validado contra o "Pendente" da própria Shopee: 96% de aderência.
+    // INTEGRADO 17/08/2026 (RPC shopee_recebiveis); cronograma PARCIAL com data
+    // DERIVADA desde 19/08/2026 (decisão do Luciano). A Shopee NÃO publica a data
+    // de liberação (investigação completa no CLAUDE.md), mas ela é derivável: o
+    // escrow libera quando o pedido conclui — teto = entrega real + 7~8d (medido
+    // em 14.434 pedidos, 99,40%). Valores 100% reais; só pedido ENTREGUE ganha
+    // data (entrega + 8d); em trânsito/pré-envio fica em `valorSemData`. Detector
+    // de acurácia 30d (piso 80%) suspende o cronograma sozinho se a régua driftar.
     id: "shopee",
     nome: "Shopee",
-    fonte: "escrow do pedido, conferido contra a carteira — a Shopee não informa data de liberação",
+    fonte: "escrow do pedido, conferido contra a carteira — data derivada da conclusão (entrega real + 8d, teto da Garantia Shopee)",
     integrado: false,
     nota: null,
   },

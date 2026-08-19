@@ -124,7 +124,14 @@ interface MpRecebiveisRow {
   dias: { data: string; valor: number }[];
 }
 
-/** Retorno do RPC `shopee_recebiveis`. Sem cronograma: a Shopee não publica data de liberação. */
+/**
+ * Retorno do RPC `shopee_recebiveis`. Cronograma PARCIAL com data DERIVADA
+ * (decisão do Luciano 19/08/2026, exceção à REGRA DURA): o VALOR é 100% real
+ * (escrow da API); a DATA vem de dois fatos da própria Shopee — entrega real
+ * (tracking) + regra da Garantia (escrow libera quando o pedido conclui, teto
+ * = entrega + 7~8d, medido em 14.434 pedidos). Só pedido ENTREGUE ganha data
+ * (entrega + 8d, o teto); em trânsito/pré-envio vai em `sem_data`.
+ */
 interface ShopeeRecebiveisRow {
   referencia: string;
   /** Σ do escrow ainda não creditado na carteira (já sem devoluções/compensados). */
@@ -139,6 +146,18 @@ interface ShopeeRecebiveisRow {
   cobertura_de: string | null;
   cobertura_ate: string | null;
   atualizado_em: string | null;
+  /** Cronograma (Camada A): concluído → hoje; entregue → entrega real + 8d. */
+  dias: { data: string; valor: number }[];
+  com_data: number;
+  pedidos_com_data: number;
+  /** Em trânsito/pré-envio: valor real, sem data (ganha data quando entregar). */
+  sem_data: number;
+  pedidos_sem_data: number;
+  /** Detector de drift (Fase 3): false = acurácia 30d < 80% → o RPC já devolve dias=[] e tudo em sem_data. */
+  cronograma_ativo: boolean;
+  /** Fração do VALOR creditado (30d) que caiu até a data prevista +1d. null = base insuficiente. */
+  acuracia_30d: number | null;
+  base_acuracia: number;
 }
 
 /**
@@ -600,31 +619,53 @@ export const supabaseProvider: DataProvider = {
       // mantém o card como "aguardando integração"
     }
 
-    // Shopee. Tem valor real, mas NÃO tem data: `dias` vazio de propósito — a API
-    // não publica release date (get_escrow_detail não traz nenhuma). Estimar pelo
-    // lag histórico seria inventar; o card mostra o total e diz que não há cronograma.
+    // Shopee. Cronograma PARCIAL com data DERIVADA (decisão do Luciano 19/08/2026):
+    // valores 100% reais (escrow da API); a data vem de fatos da própria Shopee —
+    // pedido ENTREGUE (tracking) → entrega + 8d (teto da conclusão automática,
+    // 2/3 caem antes); concluído → hoje. Em trânsito/pré-envio = valor real SEM
+    // data (`valorSemData`, estilo Amazon) — vira "com data" quando entrega.
+    // Detector de drift no RPC: acurácia 30d < 80% suspende o cronograma sozinho.
     try {
       const sp = await rpc<ShopeeRecebiveisRow>("shopee_recebiveis");
       const i = plataformas.findIndex((p) => p.id === "shopee");
       if (sp && i >= 0) {
-        const janela =
-          sp.cobertura_de && sp.cobertura_ate
-            ? ` · conferido contra a carteira de ${fmtDia(sp.cobertura_de)} a ${fmtDia(sp.cobertura_ate)}`
-            : "";
+        const partes: string[] = [];
+        if (sp.cronograma_ativo && sp.pedidos_com_data > 0) {
+          partes.push(
+            `${brlSimples(sp.com_data)} com data derivada — entrega real + 8d, o teto da conclusão automática da Shopee (2/3 caem antes)`,
+          );
+          if (sp.acuracia_30d != null) {
+            partes.push(
+              `acurácia 30d: ${Math.round(sp.acuracia_30d * 100)}% do valor liberado até a data prevista (${sp.base_acuracia} pedidos)`,
+            );
+          }
+        } else if (!sp.cronograma_ativo) {
+          // O detector reprovou: melhor sem cronograma do que com data furada.
+          partes.push(
+            `cronograma suspenso pelo detector de acurácia (30d: ${sp.acuracia_30d != null ? Math.round(sp.acuracia_30d * 100) : "?"}% < piso de 80%) — só o total`,
+          );
+        }
+        if (sp.sem_data > 0) {
+          partes.push(
+            `${brlSimples(sp.sem_data)} em ${sp.pedidos_sem_data} pedidos em trânsito/pré-envio, sem data ainda (ganham data quando entregar)`,
+          );
+        }
         // Devolução/compensado/escrow fechado como débito não entra no total — mas
         // aparece, pra a exclusão ser auditável em vez de sumir em silêncio.
-        const disputa =
-          sp.em_disputa > 0
-            ? ` · fora do total: ${brlSimples(sp.em_disputa)} em ${sp.pedidos_disputa} pedidos de devolução/ajuste, que não vão cair`
-            : "";
+        if (sp.em_disputa > 0) {
+          partes.push(
+            `fora do total: ${brlSimples(sp.em_disputa)} em ${sp.pedidos_disputa} pedidos de devolução/ajuste, que não vão cair`,
+          );
+        }
         plataformas[i] = {
           ...plataformas[i],
           integrado: true,
           total: sp.total,
           disponivel: sp.disponivel,
-          dias: [],
+          valorSemData: sp.sem_data !== 0 ? sp.sem_data : null,
+          dias: (sp.dias ?? []).map((d) => ({ data: d.data, valor: d.valor })),
           atualizadoEm: sp.atualizado_em ? fmtDataHora(sp.atualizado_em) : null,
-          nota: `${sp.pedidos} pedidos com escrow ainda não creditado${janela}${disputa}`,
+          nota: partes.join(" · "),
         };
       }
     } catch {
