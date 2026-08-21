@@ -808,30 +808,35 @@ export const supabaseProvider: DataProvider = {
   },
 
   // DRE por SKU de um canal no mês: agrega as linhas (sku×dia) do RPC dre_sku
-  // em totais mensais + série diária por SKU. M.C. = fat − CMV − comissão (produto).
+  // em totais mensais + série diária por SKU.
+  // M.C. de produto = fat − CMV − comissão − frete − ADS + subsídio (crédito da plataforma;
+  // só SHEIN ≠ 0). Na série diária o subsídio sai NEGATIVO, igual à série do canal, para
+  // Σ(segmentos) = faturamento no gráfico empilhado.
   async getDreSku(canal: string, month: string): Promise<SkuDre[]> {
-    type Row = { sku: string; titulo: string; data: string; fat: number; cmv: number; comissao: number; frete: number; ads: number };
+    type Row = { sku: string; titulo: string; data: string; fat: number; cmv: number; comissao: number; frete: number; ads: number; subsidio: number };
     const rows = (await rpc<Row[]>("dre_sku", { p_canal: canal, p_month: month })) ?? [];
     const round2 = (n: number) => Math.round(n * 100) / 100;
     const ordDia = (dm: string) => Number(dm.split("/")[0]);
-    type Dia = { fat: number; cmv: number; comissao: number; frete: number; ads: number; ord: number };
+    type Dia = { fat: number; cmv: number; comissao: number; frete: number; ads: number; subsidio: number; ord: number };
     const map = new Map<
       string,
-      { titulo: string; fat: number; cmv: number; comissao: number; frete: number; ads: number; dias: Map<string, Dia> }
+      { titulo: string; fat: number; cmv: number; comissao: number; frete: number; ads: number; subsidio: number; dias: Map<string, Dia> }
     >();
     for (const r of rows) {
       const cur =
-        map.get(r.sku) ?? { titulo: r.titulo ?? r.sku, fat: 0, cmv: 0, comissao: 0, frete: 0, ads: 0, dias: new Map() };
+        map.get(r.sku) ?? { titulo: r.titulo ?? r.sku, fat: 0, cmv: 0, comissao: 0, frete: 0, ads: 0, subsidio: 0, dias: new Map() };
       cur.fat += r.fat; cur.cmv += r.cmv; cur.comissao += r.comissao; cur.frete += r.frete; cur.ads += r.ads;
+      cur.subsidio += r.subsidio ?? 0;
       if (r.titulo && (!cur.titulo || cur.titulo === r.sku)) cur.titulo = r.titulo;
-      const d = cur.dias.get(r.data) ?? { fat: 0, cmv: 0, comissao: 0, frete: 0, ads: 0, ord: ordDia(r.data) };
+      const d = cur.dias.get(r.data) ?? { fat: 0, cmv: 0, comissao: 0, frete: 0, ads: 0, subsidio: 0, ord: ordDia(r.data) };
       d.fat += r.fat; d.cmv += r.cmv; d.comissao += r.comissao; d.frete += r.frete; d.ads += r.ads;
+      d.subsidio += r.subsidio ?? 0;
       cur.dias.set(r.data, d);
       map.set(r.sku, cur);
     }
     const out: SkuDre[] = [];
     for (const [sku, v] of map) {
-      const mc = round2(v.fat - v.cmv - v.comissao - v.frete - v.ads);
+      const mc = round2(v.fat - v.cmv - v.comissao - v.frete - v.ads + v.subsidio);
       const serie = Array.from(v.dias.entries())
         .sort((a, b) => a[1].ord - b[1].ord)
         .map(([data, dd]) => ({
@@ -841,8 +846,9 @@ export const supabaseProvider: DataProvider = {
           comissao: round2(dd.comissao),
           frete: round2(dd.frete),
           ads: round2(dd.ads),
+          subsidio: round2(-dd.subsidio),
           outras: 0,
-          mc: round2(dd.fat - dd.cmv - dd.comissao - dd.frete - dd.ads),
+          mc: round2(dd.fat - dd.cmv - dd.comissao - dd.frete - dd.ads + dd.subsidio),
         }));
       out.push({
         sku,
@@ -852,6 +858,7 @@ export const supabaseProvider: DataProvider = {
         comissao: round2(v.comissao),
         frete: round2(v.frete),
         ads: round2(v.ads),
+        subsidio: round2(v.subsidio),
         mc,
         mcPct: v.fat > 0 ? Math.round((mc / v.fat) * 10000) / 100 : null,
         serie,

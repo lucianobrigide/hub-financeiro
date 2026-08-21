@@ -29,6 +29,9 @@ export function DreSkuSection({ canalKey }: { canalKey: string }) {
   }, [canalKey, month]);
 
   const selecionado = skus?.find((s) => s.sku === sel) ?? null;
+  // Coluna "Subsídio" só aparece onde ela existe de fato (hoje só SHEIN) — nos demais
+  // canais seria uma coluna de zeros.
+  const temSubsidio = (skus ?? []).some((s) => (s.subsidio ?? 0) !== 0);
 
   return (
     <div className="mt-6 space-y-4">
@@ -52,6 +55,9 @@ export function DreSkuSection({ canalKey }: { canalKey: string }) {
                   <th className="py-2 text-right text-[10px] font-semibold uppercase tracking-wider">Comissão</th>
                   <th className="py-2 text-right text-[10px] font-semibold uppercase tracking-wider">Frete</th>
                   <th className="py-2 text-right text-[10px] font-semibold uppercase tracking-wider">ADS</th>
+                  {temSubsidio && (
+                    <th className="py-2 text-right text-[10px] font-semibold uppercase tracking-wider">Subsídio</th>
+                  )}
                   <th className="py-2 text-right text-[10px] font-semibold uppercase tracking-wider">M.C. produto</th>
                   <th className="py-2 text-right text-[10px] font-semibold uppercase tracking-wider">MC %</th>
                   <th className="py-2 text-right text-[10px] font-semibold uppercase tracking-wider">ROAS</th>
@@ -83,6 +89,11 @@ export function DreSkuSection({ canalKey }: { canalKey: string }) {
                       <td className="py-1.5 text-right tabular-nums" style={{ color: COLORS.muted }}>{brl(s.comissao)}</td>
                       <td className="py-1.5 text-right tabular-nums" style={{ color: COLORS.muted }}>{brl(s.frete)}</td>
                       <td className="py-1.5 text-right tabular-nums" style={{ color: COLORS.muted }}>{brl(s.ads)}</td>
+                      {temSubsidio && (
+                        <td className="py-1.5 text-right tabular-nums" style={{ color: COLORS.green }}>
+                          {brl(-(s.subsidio ?? 0))}
+                        </td>
+                      )}
                       <td
                         className="py-1.5 text-right font-semibold tabular-nums"
                         style={{ color: s.mc < 0 ? COLORS.red : COLORS.green }}
@@ -120,7 +131,7 @@ export function DreSkuSection({ canalKey }: { canalKey: string }) {
           </div>
         )}
         <div className="mt-2 text-[10px]" style={{ color: COLORS.muted }}>
-          M.C. de produto = Faturamento − CMV − Comissão − Frete − ADS (antes do overhead do canal) — serve pra decidir
+          M.C. de produto = Faturamento − CMV − Comissão − Frete − ADS + Subsídio (antes do overhead do canal) — serve pra decidir
           preço e investimento por SKU. No ML: comissão (sale_fee), frete (envio rateado no pedido) e ADS (gasto real por
           item) são reais; nos demais canais comissão/frete são rateados ∝ faturamento e ADS ainda não é por SKU. Clique
           num SKU para ver o diário.

@@ -129,7 +129,10 @@ export interface SkuDre {
   comissao: number;
   frete: number;
   ads: number;
-  /** M.C. de PRODUTO = faturamento − CMV − comissão − frete − ADS (antes do overhead do canal). */
+  /** Crédito da plataforma (só SHEIN ≠ 0), POSITIVO aqui. Abate as deduções do SKU. */
+  subsidio: number;
+  /** M.C. de PRODUTO = faturamento − CMV − comissão − frete − ADS + subsídio
+   *  (antes do overhead do canal). */
   mc: number;
   /** M.C. de produto como % do faturamento. */
   mcPct: number | null;
