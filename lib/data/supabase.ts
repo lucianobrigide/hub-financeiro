@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { CronsStatus, DashboardData, DataProvider, DreDrift, DreItem, Month, PlataformaDre, Recebiveis, SerieDiariaItem, SkuDre, VendaDiaria } from "./types";
+import type { CronsStatus, DashboardData, DataProvider, DreDrift, DreItem, Month, PlataformaDre, Recebiveis, SaidasProjetadas, SaldoCaixa, SerieDiariaItem, SkuDre, VendaDiaria } from "./types";
 import { hojeBrt, recebiveisVazios } from "./recebiveis";
 
 /** Labels das 6 deduções do mini-DRE, na ordem do card. */
@@ -107,6 +107,43 @@ async function rpc<T>(fn: string, args: Record<string, unknown> = {}): Promise<T
     throw new Error(`RPC ${fn} respondeu HTTP ${resp.status}`);
   }
   return (await resp.json()) as T;
+}
+
+/** Retorno do RPC `omie_saidas_projetadas` (contas a pagar em aberto na Omie). */
+interface OmieSaidasRow {
+  referencia: string;
+  total_com_data: number;
+  titulos_com_data: number;
+  com_data_90d: number;
+  apos_90d: { valor: number; titulos: number; ate: string | null };
+  vencido_recente: { valor: number; titulos: number; desde: string | null };
+  vencido_antigo: {
+    valor: number;
+    titulos: number;
+    desde: string | null;
+    fornecedores: { fornecedor: string; valor: number; titulos: number; desde: string }[] | null;
+  };
+  dias: { data: string; valor: number; titulos: number }[];
+  grupos: { grupo: string; valor_90d: number; vencido_recente: number; titulos_90d: number }[];
+  atualizado_em: string | null;
+}
+
+/** Retorno do RPC `fc_saldo_caixa` (saldo atual das contas correntes da Omie). */
+interface FcSaldoCaixaRow {
+  total: number;
+  total_conciliado: number;
+  contas_caixa: number;
+  coletado_em: string | null;
+  contas: {
+    codigo: number;
+    descricao: string;
+    tipo: string;
+    banco: string | null;
+    conta_caixa: boolean;
+    saldo_atual: number | null;
+    saldo_conciliado: number | null;
+    coletado_em: string | null;
+  }[];
 }
 
 /** Retorno do RPC `mp_recebiveis` (cronograma de liberação do Mercado Pago). */
@@ -782,6 +819,66 @@ export const supabaseProvider: DataProvider = {
     }
 
     return { referencia, plataformas };
+  },
+
+  /**
+   * Saídas projetadas — RPC `omie_saidas_projetadas` (contas a pagar em aberto
+   * na Omie, por vencimento). Falha de RPC => null (a UI diz "sem dados").
+   */
+  async getSaidasProjetadas(): Promise<SaidasProjetadas | null> {
+    try {
+      const r = await rpc<OmieSaidasRow>("omie_saidas_projetadas");
+      if (!r) return null;
+      return {
+        referencia: r.referencia,
+        totalComData: r.total_com_data,
+        titulosComData: r.titulos_com_data,
+        comData90d: r.com_data_90d,
+        apos90d: { valor: r.apos_90d.valor, titulos: r.apos_90d.titulos, ate: r.apos_90d.ate },
+        vencidoRecente: r.vencido_recente,
+        vencidoAntigo: {
+          valor: r.vencido_antigo.valor,
+          titulos: r.vencido_antigo.titulos,
+          desde: r.vencido_antigo.desde,
+          fornecedores: r.vencido_antigo.fornecedores ?? [],
+        },
+        dias: (r.dias ?? []).map((d) => ({ data: d.data, valor: d.valor, titulos: d.titulos })),
+        grupos: (r.grupos ?? []).map((g) => ({
+          grupo: g.grupo,
+          valor90d: g.valor_90d,
+          vencidoRecente: g.vencido_recente,
+          titulos90d: g.titulos_90d,
+        })),
+        atualizadoEm: r.atualizado_em ? fmtDataHora(r.atualizado_em) : null,
+      };
+    } catch {
+      return null;
+    }
+  },
+
+  /** Saldo em conta — RPC `fc_saldo_caixa` (tabela `omie_saldos_cc`, coleta `omie_fill_saldos`). */
+  async getSaldoCaixa(): Promise<SaldoCaixa | null> {
+    try {
+      const r = await rpc<FcSaldoCaixaRow>("fc_saldo_caixa");
+      if (!r) return null;
+      return {
+        total: r.total,
+        totalConciliado: r.total_conciliado,
+        contasCaixa: r.contas_caixa,
+        coletadoEm: r.coletado_em ? fmtDataHora(r.coletado_em) : null,
+        contas: (r.contas ?? []).map((c) => ({
+          codigo: c.codigo,
+          descricao: c.descricao,
+          tipo: c.tipo,
+          banco: c.banco,
+          contaCaixa: c.conta_caixa,
+          saldoAtual: c.saldo_atual,
+          saldoConciliado: c.saldo_conciliado,
+        })),
+      };
+    } catch {
+      return null;
+    }
   },
 
   // Linhas ACIMA da Margem de Contribuição, consolidadas de TODOS os canais (reusa getDashboard).

@@ -264,6 +264,88 @@ export interface Recebiveis {
   plataformas: RecebiveisPlataforma[];
 }
 
+/* ── Saídas projetadas (F.C. Projetado) ─────────────────────────────────────
+ * "Quanto já está LANÇADO na Omie para sair, e em que dia vence."
+ * Fonte: contas a pagar da Omie (omie_despesas). Só título em aberto, pelo valor
+ * e vencimento da Omie — nada estimado. Despesa ainda não lançada NÃO aparece
+ * (folha futura, impostos a apurar, boleto que ainda não chegou): a UI diz isso.
+ */
+
+/** Um dia do cronograma de saídas. */
+export interface SaidaDia {
+  /** 'YYYY-MM-DD' — vencimento na Omie. */
+  data: string;
+  valor: number;
+  titulos: number;
+}
+
+/** Saídas agrupadas por linha (DRE) / natureza, nos próximos 90 dias. */
+export interface SaidasGrupo {
+  grupo: string;
+  valor90d: number;
+  /** Vencido há ≤30 dias e ainda em aberto — exigível agora. */
+  vencidoRecente: number;
+  titulos90d: number;
+}
+
+export interface SaidasProjetadas {
+  referencia: string;
+  /** Σ em aberto com vencimento de hoje em diante (sem horizonte). */
+  totalComData: number;
+  titulosComData: number;
+  /** Σ dos próximos 90 dias (= Σ `dias`). */
+  comData90d: number;
+  /** O que vence depois de 90 dias (parcelamentos longos, ex.: DIFAL BA até 2031). */
+  apos90d: { valor: number; titulos: number; ate: string | null };
+  /**
+   * Vencido há até 30 dias e ainda sem baixa na Omie: exigível agora, sem data.
+   * Entra no total "a pagar" e no saldo projetado em D+0 (erro a favor do caixa).
+   */
+  vencidoRecente: { valor: number; titulos: number; desde: string | null };
+  /**
+   * Vencido há mais de 30 dias: título que nunca foi baixado na Omie (medido em
+   * 21/08/2026: R$ 7,55M, quase tudo NF de compra de distribuidores com meses de
+   * atraso). NÃO é saída futura — fica FORA do total, mas visível, a confirmar
+   * com o financeiro.
+   */
+  vencidoAntigo: {
+    valor: number;
+    titulos: number;
+    desde: string | null;
+    fornecedores: { fornecedor: string; valor: number; titulos: number; desde: string }[];
+  };
+  dias: SaidaDia[];
+  grupos: SaidasGrupo[];
+  /** Última sincronização das contas a pagar ("21/08 05:00"). */
+  atualizadoEm: string | null;
+}
+
+/* ── Saldo em conta (F.C. Projetado) ────────────────────────────────────────
+ * Saldo atual das contas correntes da Omie (ListarExtrato). Só as marcadas como
+ * `contaCaixa` somam no saldo inicial: as contas de marketplace na Omie são
+ * escriturais/não conciliadas (o saldo real dessas plataformas vem delas mesmas).
+ */
+export interface SaldoCaixaConta {
+  codigo: number;
+  descricao: string;
+  tipo: string;
+  banco: string | null;
+  contaCaixa: boolean;
+  saldoAtual: number | null;
+  saldoConciliado: number | null;
+}
+
+export interface SaldoCaixa {
+  /** Σ saldo atual das contas de caixa. */
+  total: number;
+  /** Σ saldo conciliado das contas de caixa (referência: o que o banco já confirmou). */
+  totalConciliado: number;
+  contasCaixa: number;
+  /** "21/08 13:25" da última coleta. */
+  coletadoEm: string | null;
+  contas: SaldoCaixaConta[];
+}
+
 export interface DataProvider {
   /**
    * Lista os meses disponíveis (mais recente primeiro).
@@ -323,6 +405,16 @@ export interface DataProvider {
    * OPCIONAL: providers antigos não implementam.
    */
   getRecebiveis?(): Promise<Recebiveis | null>;
+  /**
+   * Saídas projetadas (aba F.C. Projetado): contas a pagar em aberto na Omie,
+   * por vencimento. `null` => sem dado. OPCIONAL.
+   */
+  getSaidasProjetadas?(): Promise<SaidasProjetadas | null>;
+  /**
+   * Saldo atual das contas correntes (Omie) — saldo inicial do saldo projetado.
+   * `null` => sem dado. OPCIONAL.
+   */
+  getSaldoCaixa?(): Promise<SaldoCaixa | null>;
 }
 
 /** Resultado da trava de fechamento (RPC omie_dre_drift). */
