@@ -198,7 +198,7 @@ Padrão comum: OAuth com `refresh_token` **só no Vault**; `*_oauth_state` (linh
 
 - **43 commits** foram pushados para `origin/main` em 28/07/2026 (HEAD remoto `a0e887d`) — repo sincronizado.
 - Módulo stub: **Previsão de Impostos** (em desenho). **F.C. Projetado** saiu do stub em 17/08/2026 — seção "Recebíveis por plataforma" com **Mercado Pago integrado** e as outras 6 plataformas na fila (ver Módulos e Integrações).
-- **Recebíveis — validação humana pendente (Mercado Pago):** conferir o total do card contra a tela "Seus recebimentos"/extrato futuro do MP antes de usar o número para decisão de caixa. E **saldo já liberado na conta não existe no card** (endpoint de balance dá 403 com a credencial atual).
+- ✅ **RESOLVIDO (20/08/2026) — validação humana do Mercado Pago FEITA** (revisão plataforma a plataforma com o Luciano, via tela "Saldo e extrato" do MP logado): tela "A receber" **R$ 999.683,53** ficou exatamente ENTRE os dois recortes do Hub — futuro sem D+0 (R$ 941.246,64) e total com D+0 (R$ 1.020.455,80, foto das 13h) — diferença 100% explicada por timing (o MP libera ao longo do dia e as vendas da tarde ainda não estavam na foto). **Régua validada.** Observados na tela (sem fonte via API): saldo disponível **R$ 195.285,58** (endpoint segue 403 → card mantém `disponivel: null`, honesto) e **"Retido" R$ 5.631,55** (mediações/disputas) — ⚠️ pendência NOVA pequena: verificar se pagamentos retidos estão dentro do nosso "a receber" (0,5% do total).
 - **Cron de ingestão do B2B/Tiny** (hoje manual via `b2b_fill_notas`).
 - **DAS/IR** (impostos sobre receita além de PIS/COFINS) — ainda não capturados.
 - **Vercel PAUSADA** (ver Deploy) — reautorização do ML bloqueada até despausar.
