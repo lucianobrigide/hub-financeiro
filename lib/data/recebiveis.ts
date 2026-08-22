@@ -34,9 +34,13 @@ export const RECEBIVEIS_ROSTER: readonly Omit<
     // em 14.434 pedidos, 99,40%). Valores 100% reais; só pedido ENTREGUE ganha
     // data (entrega + 8d); em trânsito/pré-envio fica em `valorSemData`. Detector
     // de acurácia 30d (piso 80%) suspende o cronograma sozinho se a régua driftar.
+    // 22/08/2026 (pedido do Luciano: data em TODAS as plataformas): em trânsito →
+    // coleta + 15d (entrega prevista coleta+7d, p90 medido, + 8d) e pré-envio →
+    // venda + 18d (coleta prevista venda+3d + 15d); backtests 98,5% e 99,0% do
+    // valor creditado até a data. Detector por camada.
     id: "shopee",
     nome: "Shopee",
-    fonte: "escrow do pedido, conferido contra a carteira — data derivada da conclusão (entrega real + 8d, teto da Garantia Shopee)",
+    fonte: "escrow do pedido, conferido contra a carteira — data derivada: entregue = entrega + 8d · em trânsito = coleta + 15d · pré-envio = venda + 18d (tetos medidos, detector por camada)",
     integrado: false,
     nota: null,
   },
@@ -46,31 +50,38 @@ export const RECEBIVEIS_ROSTER: readonly Omit<
     // do pago (a plataforma subsidia; o settlement sai sobre a receita, que foi
     // 104%–117% do que o cliente pagou). O card é informativo: bruto real pendente
     // de liquidação + a faixa histórica de repasse, sem projetar número único.
+    // 22/08/2026: a DATA passou a existir (pedido do Luciano: data em TODAS) —
+    // o TikTok liquida no statement DIÁRIO de (entrega UTC + 7), medido em 278
+    // pedidos (97,7% não-otimista); coletado → coleta+14, pré-envio → venda+17.
+    // Valor segue bruto/fora do total até decisão sobre entrar com líquido projetado.
     id: "tiktok",
     nome: "TikTok Shop",
-    fonte: "pedidos pagos aguardando liquidação — o TikTok não informa data nem valor final do repasse",
+    fonte: "pedidos pagos aguardando liquidação — data derivada do statement diário (entrega + 7d); valor = bruto pago (repasse final varia)",
     integrado: false,
     nota: null,
   },
   {
-    // INTEGRADO 17/08/2026 (RPC az_recebiveis). Único com cronograma PARCIAL: o
-    // que já está a caminho do banco tem data de transferência real; o ciclo
-    // corrente (grupo Open) é valor real sem data — a Amazon não publica quando
-    // o ciclo fecha (na prática ~14 dias, mas isso é observação, não dado).
+    // INTEGRADO 17/08/2026 (RPC az_recebiveis). Transferências a caminho têm data
+    // real; o ciclo corrente (grupo Open) ganhou data DERIVADA em 22/08/2026: a
+    // grade de 14 dias é fato da Amazon (abre/fecha toda 2ª 12:39 BRT; transfer
+    // date = fechamento em 22/22 grupos; 94% do valor histórico fechou em 14d
+    // exatos). Só ciclo aberto negativo fica sem data (abate o próximo).
     id: "amazon",
     nome: "Amazon",
-    fonte: "ciclos financeiros da SP-API — transferências a caminho (com data) + ciclo corrente",
+    fonte: "ciclos financeiros da SP-API — transferências a caminho (data real) + ciclo corrente (data derivada da grade de 14 dias)",
     integrado: false,
     nota: null,
   },
   {
-    // INTEGRADO 17/08/2026 (RPC shein_recebiveis). Cronograma PARCIAL: o check
-    // order traz estimate_pay_time (data estimada pela PRÓPRIA SHEIN), mas só
-    // nasce quando o pedido chega ao status 5 (~2 semanas após a venda). Pedido
-    // mais novo entra no total sem data. Os dois lados batem centavo a centavo.
+    // INTEGRADO 17/08/2026 (RPC shein_recebiveis). O check order traz
+    // estimate_pay_time (data da PRÓPRIA SHEIN) e nasce na ENTREGA (status 5).
+    // Pedido pré-entrega ganhou data DERIVADA em 22/08/2026: a regra de pagamento
+    // da SHEIN é exata (2ª-feira 01:00 BRT, 2 semanas após a semana UTC+8 da
+    // entrega — 118/118), aplicada a entrega prevista = envio + 12d (teto medido,
+    // 98,3% não-otimista em 213 check orders). Detector 45d suspende sozinho.
     id: "shein",
     nome: "SHEIN",
-    fonte: "check order com data estimada pela SHEIN + pedidos que ainda não geraram check order",
+    fonte: "check order com data da SHEIN (emitido na entrega) + pedidos pré-entrega com data derivada (regra semanal da SHEIN sobre envio + 12d)",
     integrado: false,
     nota: null,
   },

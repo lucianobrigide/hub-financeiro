@@ -280,7 +280,8 @@ export function SaldoProjetado({
           {tiktok.map((p) => (
             <li key={p.id}>
               <strong style={{ color: COLORS.white }}>{p.total != null ? brl(p.total) : "—"}</strong> {p.nome}: bruto pago pelo
-              cliente aguardando liquidação — fora do total (sem data nem valor final de repasse).
+              cliente aguardando liquidação — fora do total por decisão (a data existe; o valor final do repasse varia
+              e ainda não entra na curva).
             </li>
           ))}
           {saidasAlemHorizonte > 0 && (

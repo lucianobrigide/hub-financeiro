@@ -190,11 +190,20 @@ interface ShopeeRecebiveisRow {
   /** Em trânsito/pré-envio: valor real, sem data (ganha data quando entregar). */
   sem_data: number;
   pedidos_sem_data: number;
-  /** Detector de drift (Fase 3): false = acurácia 30d < 80% → o RPC já devolve dias=[] e tudo em sem_data. */
+  /** Detector de drift (Fase 3) da Camada A: false = acurácia 30d < 80%. */
   cronograma_ativo: boolean;
-  /** Fração do VALOR creditado (30d) que caiu até a data prevista +1d. null = base insuficiente. */
+  /** Fração do VALOR creditado (30d) que caiu até a data prevista +1d (Camada A). null = base insuficiente. */
   acuracia_30d: number | null;
   base_acuracia: number;
+  /**
+   * Camadas da data derivada (22/08/2026 — pedido do Luciano: data em TODAS):
+   * entregue = entrega+8d · transito = coleta+15d · pre_envio = venda+18d.
+   * Cada uma com detector próprio; a que driftar volta sozinha pra sem_data.
+   */
+  camadas: Record<
+    "entregue" | "transito" | "pre_envio",
+    { valor: number; pedidos: number; ativa: boolean; acuracia_30d: number | null; base: number }
+  >;
 }
 
 /**
@@ -210,35 +219,73 @@ interface TtRecebiveisRow {
   repasse_min: number | null;
   repasse_max: number | null;
   meses_base: number;
+  /** Razão settlement/pago dos liquidados nos últimos 60d (%), e o bruto × essa razão — só pra nota. */
+  repasse_mediano_60d: number | null;
+  liquido_indicativo: number | null;
   atualizado_em: string | null;
+  /**
+   * Data DERIVADA (22/08/2026): o TikTok liquida no statement diário de
+   * (entrega UTC + 7) — 97,7% não-otimista. Camadas: entregue → entrega+7 ·
+   * coletado → coleta+14 · pré-envio → venda+17; detector por camada contra o
+   * statement_time real. O VALOR segue o bruto (fora do total).
+   */
+  dias: { data: string; valor: number }[];
+  com_data: number;
+  pedidos_com_data: number;
+  sem_data: number;
+  pedidos_sem_data: number;
+  camadas: Record<
+    "entregue" | "coletado" | "pre_envio",
+    { valor: number; pedidos: number; ativa: boolean; acuracia_30d: number | null; base: number }
+  >;
 }
 
 /**
- * Retorno do RPC `az_recebiveis`. Cronograma PARCIAL: `dias` cobre só o que já
- * está a caminho do banco; `sem_data` é o ciclo aberto (real, mas sem data).
+ * Retorno do RPC `az_recebiveis`. `dias` = transferências a caminho (data real)
+ * + ciclo aberto POSITIVO com data DERIVADA da grade de 14 dias da Amazon
+ * (início + 14d; 22/08/2026). `sem_data` = só ciclo aberto negativo (abate o próximo).
  */
 interface AzRecebiveisRow {
   referencia: string;
   total: number;
   em_transito: number;
+  /** Ciclo aberto positivo (com data derivada = fechamento da grade). */
+  ciclo_aberto: number;
+  ciclo_fecha_em: string | null;
   sem_data: number;
   grupos_abertos: number;
+  /** % do VALOR dos grupos positivos fechados que fechou em 14 dias exatos. */
+  acuracia_14d: number | null;
+  grupos_14d: number;
+  base_grade: number;
   atualizado_em: string | null;
   dias: { data: string; valor: number }[];
 }
 
 /**
- * Retorno do RPC `shein_recebiveis`. Cronograma PARCIAL: `dias` vem do
- * `estimate_pay_time` do check order; `sem_data` são os pedidos que ainda não
- * geraram check order (valor real, sem data).
+ * Retorno do RPC `shein_recebiveis`. `dias` = check orders (`estimate_pay_time`
+ * da SHEIN) + pedidos pré-entrega com data DERIVADA (22/08/2026): regra exata
+ * da SHEIN (2ª-feira, 2 semanas após a semana UTC+8 da entrega, 118/118)
+ * aplicada a entrega prevista = envio + 12d (teto medido, 98,3% não-otimista).
+ * `sem_data` só resta se o detector suspender ou o pedido não tiver data de envio.
  */
 interface SheinRecebiveisRow {
   referencia: string;
   total: number;
+  /** Check orders aguardando pagamento (data da própria SHEIN). */
   com_data: number;
+  pedidos_check: number;
+  /** Pedidos pré-entrega com data derivada. */
+  derivada: number;
+  pedidos_derivada: number;
   sem_data: number;
   pedidos_sem_data: number;
   mais_antigo: string | null;
+  teto_dias: number;
+  cronograma_ativo: boolean;
+  /** Fração do VALOR (check orders 45d) cuja data derivada >= data real da SHEIN. */
+  acuracia_45d: number | null;
+  base_acuracia: number;
   atualizado_em: string | null;
   dias: { data: string; valor: number }[];
 }
@@ -667,24 +714,25 @@ export const supabaseProvider: DataProvider = {
       const i = plataformas.findIndex((p) => p.id === "shopee");
       if (sp && i >= 0) {
         const partes: string[] = [];
-        if (sp.cronograma_ativo && sp.pedidos_com_data > 0) {
-          partes.push(
-            `${brlSimples(sp.com_data)} com data derivada — entrega real + 8d, o teto da conclusão automática da Shopee (2/3 caem antes)`,
-          );
-          if (sp.acuracia_30d != null) {
-            partes.push(
-              `acurácia 30d: ${Math.round(sp.acuracia_30d * 100)}% do valor liberado até a data prevista (${sp.base_acuracia} pedidos)`,
-            );
-          }
-        } else if (!sp.cronograma_ativo) {
-          // O detector reprovou: melhor sem cronograma do que com data furada.
-          partes.push(
-            `cronograma suspenso pelo detector de acurácia (30d: ${sp.acuracia_30d != null ? Math.round(sp.acuracia_30d * 100) : "?"}% < piso de 80%) — só o total`,
-          );
+        // Três camadas de data derivada (22/08/2026 — pedido do Luciano: data em
+        // TODAS as plataformas). Cada uma com selo próprio: régua + acurácia 30d.
+        const cam = sp.camadas;
+        const pct = (v: number | null) => (v != null ? `${Math.round(v * 100)}%` : "?");
+        const camada = (
+          c: { valor: number; pedidos: number; ativa: boolean; acuracia_30d: number | null; base: number },
+          regua: string,
+        ) =>
+          c.ativa
+            ? `${brlSimples(c.valor)} (${c.pedidos}) ${regua} · acurácia 30d ${pct(c.acuracia_30d)} em ${c.base} pedidos`
+            : `${regua}: camada SUSPENSA pelo detector (30d ${pct(c.acuracia_30d)} < 80%) — valor em "sem data"`;
+        if (cam) {
+          partes.push(camada(cam.entregue, "entregue → entrega real + 8d"));
+          partes.push(camada(cam.transito, "em trânsito → coleta + 15d"));
+          partes.push(camada(cam.pre_envio, "pré-envio → venda + 18d"));
         }
         if (sp.sem_data > 0) {
           partes.push(
-            `${brlSimples(sp.sem_data)} em ${sp.pedidos_sem_data} pedidos em trânsito/pré-envio, sem data ainda (ganham data quando entregar)`,
+            `${brlSimples(sp.sem_data)} em ${sp.pedidos_sem_data} pedidos sem data (camada suspensa)`,
           );
         }
         // Devolução/compensado/escrow fechado como débito não entra no total — mas
@@ -709,18 +757,21 @@ export const supabaseProvider: DataProvider = {
       // mantém o card como "aguardando integração"
     }
 
-    // Amazon. Cronograma PARCIAL: o que já está a caminho do banco tem data de
-    // transferência (grupos Closed+Processing); o ciclo corrente (Open) é valor
-    // real mas a Amazon não publica quando fecha — vai em `valorSemData`.
+    // Amazon. Transferências a caminho (data real) + ciclo aberto positivo com
+    // data DERIVADA da grade fixa de 14 dias da Amazon (início + 14d; 22/08/2026).
+    // Só ciclo aberto NEGATIVO fica sem data (abate o próximo repasse).
     try {
       const az = await rpc<AzRecebiveisRow>("az_recebiveis");
       const i = plataformas.findIndex((p) => p.id === "amazon");
       if (az && i >= 0) {
-        const partes = [`${brlSimples(az.em_transito)} já a caminho do banco`];
-        if (az.grupos_abertos > 0) {
+        const partes = [`${brlSimples(az.em_transito)} já a caminho do banco (data real da transferência)`];
+        if (az.ciclo_aberto > 0) {
           partes.push(
-            `${brlSimples(az.sem_data)} no ciclo aberto (a Amazon não publica a data de fechamento)`,
+            `${brlSimples(az.ciclo_aberto)} no ciclo aberto, data derivada = fechamento da grade de 14 dias da Amazon${az.ciclo_fecha_em ? ` (${fmtDia(az.ciclo_fecha_em)})` : ""}${az.acuracia_14d != null ? ` · ${az.acuracia_14d}% do valor histórico fechou em 14d exatos (${az.grupos_14d}/${az.base_grade} grupos)` : ""}`,
           );
+        }
+        if (az.sem_data !== 0) {
+          partes.push(`${brlSimples(az.sem_data)} em ciclo aberto negativo (abate o próximo repasse, sem data)`);
         }
         plataformas[i] = {
           ...plataformas[i],
@@ -737,20 +788,29 @@ export const supabaseProvider: DataProvider = {
       // mantém o card como "aguardando integração"
     }
 
-    // SHEIN. Cronograma PARCIAL, como a Amazon, mas por outro motivo: o check
-    // order traz `estimate_pay_time` (data que a própria SHEIN estima), só que
-    // ele nasce ~2 semanas após a venda. Pedido novo tem valor real e ainda não
-    // tem data — vai em `valorSemData`.
+    // SHEIN. Check order = data da própria SHEIN (`estimate_pay_time`, nasce na
+    // ENTREGA). Pedido pré-entrega (22/08/2026): data DERIVADA = regra exata da
+    // SHEIN (2ª-feira, 2 semanas após a semana UTC+8 da entrega; 118/118) sobre
+    // entrega prevista = envio + 12d (teto medido). Detector 45d suspende sozinho.
     try {
       const sh = await rpc<SheinRecebiveisRow>("shein_recebiveis");
       const i = plataformas.findIndex((p) => p.id === "shein");
       if (sh && i >= 0) {
         const partes = [
-          `${brlSimples(sh.com_data)} com data estimada pela SHEIN (check order emitido)`,
+          `${brlSimples(sh.com_data)} (${sh.pedidos_check}) com data da própria SHEIN (check order emitido na entrega)`,
         ];
+        if (sh.cronograma_ativo && sh.pedidos_derivada > 0) {
+          partes.push(
+            `${brlSimples(sh.derivada)} (${sh.pedidos_derivada}) pré-entrega com data derivada — regra da SHEIN (2ª-feira, 2 semanas após a semana da entrega) sobre envio + ${sh.teto_dias}d${sh.acuracia_45d != null ? ` · acurácia ${Math.round(sh.acuracia_45d * 100)}% não-otimista em ${sh.base_acuracia} check orders` : ""}`,
+          );
+        } else if (!sh.cronograma_ativo) {
+          partes.push(
+            `derivação SUSPENSA pelo detector (${sh.acuracia_45d != null ? Math.round(sh.acuracia_45d * 100) : "?"}% < piso de 80%)`,
+          );
+        }
         if (sh.pedidos_sem_data > 0) {
           partes.push(
-            `${brlSimples(sh.sem_data)} em ${sh.pedidos_sem_data} pedidos que ainda não geraram check order${sh.mais_antigo ? `, o mais antigo de ${fmtDia(sh.mais_antigo)}` : ""}`,
+            `${brlSimples(sh.sem_data)} em ${sh.pedidos_sem_data} pedidos sem data${sh.mais_antigo ? `, o mais antigo de ${fmtDia(sh.mais_antigo)}` : ""}`,
           );
         }
         plataformas[i] = {
@@ -800,8 +860,27 @@ export const supabaseProvider: DataProvider = {
       if (tt && i >= 0) {
         const faixa =
           tt.repasse_min != null && tt.repasse_max != null
-            ? ` · historicamente o repasse ficou entre ${pctBr(tt.repasse_min)} e ${pctBr(tt.repasse_max)} desse valor (${tt.meses_base} meses medidos)`
+            ? ` · historicamente o repasse ficou entre ${pctBr(tt.repasse_min)} e ${pctBr(tt.repasse_max)} desse valor (${tt.meses_base} meses medidos)${tt.repasse_mediano_60d != null && tt.liquido_indicativo != null ? `; nos últimos 60d, ${pctBr(tt.repasse_mediano_60d)} — se entrasse na curva por essa razão seriam ~${brlSimples(tt.liquido_indicativo)} (decisão pendente)` : ""}`
             : "";
+        // Data DERIVADA (22/08/2026): statement diário de (entrega + 7). Selo por camada.
+        const cam = tt.camadas;
+        const pct = (v: number | null) => (v != null ? `${Math.round(v * 100)}%` : "?");
+        const camada = (
+          c: { valor: number; pedidos: number; ativa: boolean; acuracia_30d: number | null; base: number },
+          regua: string,
+        ) =>
+          c.pedidos === 0 && c.ativa
+            ? null
+            : c.ativa
+              ? `${brlSimples(c.valor)} (${c.pedidos}) ${regua} · acurácia 30d ${pct(c.acuracia_30d)} em ${c.base} liquidados`
+              : `${regua}: camada SUSPENSA pelo detector (30d ${pct(c.acuracia_30d)} < 80%)`;
+        const camadas = cam
+          ? [
+              camada(cam.entregue, "entregue → entrega + 7d (statement diário do TikTok)"),
+              camada(cam.coletado, "coletado → coleta + 14d"),
+              camada(cam.pre_envio, "pré-envio → venda + 17d"),
+            ].filter((s): s is string => s != null)
+          : [];
         plataformas[i] = {
           ...plataformas[i],
           integrado: true,
@@ -809,9 +888,13 @@ export const supabaseProvider: DataProvider = {
           rotuloValor: "Pago, a liquidar",
           total: tt.total,
           disponivel: null,
-          dias: [],
+          valorSemData: tt.sem_data !== 0 ? tt.sem_data : null,
+          dias: (tt.dias ?? []).map((d) => ({ data: d.data, valor: d.valor })),
           atualizadoEm: tt.atualizado_em ? fmtDataHora(tt.atualizado_em) : null,
-          nota: `${tt.pedidos} pedidos pagos aguardando liquidação${tt.mais_antigo ? `, o mais antigo de ${fmtDia(tt.mais_antigo)}` : ""}${faixa}`,
+          nota: [
+            `${tt.pedidos} pedidos pagos aguardando liquidação${tt.mais_antigo ? `, o mais antigo de ${fmtDia(tt.mais_antigo)}` : ""}${faixa}`,
+            ...camadas,
+          ].join(" · "),
         };
       }
     } catch {
