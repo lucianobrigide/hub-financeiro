@@ -9,12 +9,14 @@ import { COLORS, Panel, brl } from "./ui";
  *
  * Responde: quanto já está LANÇADO na Omie para sair, e em que dia vence.
  *
- * Três baldes, separados de propósito (corte FIXO em ago/2026 — decisão do
- * Luciano 25/08/2026: "considerar o contas a pagar a partir de agosto, ou projetado"):
+ * Datas pela PREVISÃO DE PAGAMENTO da Omie (decisão do Luciano 25/08/2026 —
+ * é a data que o financeiro programa; fallback: vencimento). Três baldes,
+ * separados de propósito (corte FIXO em ago/2026 — decisão do Luciano
+ * 25/08/2026: "considerar o contas a pagar a partir de agosto, ou projetado"):
  *  • com data (próximos 90 dias) — o cronograma;
- *  • vencido desde ago/2026, ainda em aberto — exigível agora, entra no total
+ *  • previsto desde ago/2026 e não pago — exigível agora, entra no total
  *    até ser baixado na Omie (o corte não desliza com o tempo);
- *  • vencido antes de ago/2026 — legado que nunca foi baixado na Omie; NÃO é
+ *  • previsto antes de ago/2026 — legado que nunca foi baixado na Omie; NÃO é
  *    saída futura, fica FORA do total por decisão, mas visível por fornecedor.
  * REGRA DURA: nada estimado — e o que a Omie ainda não tem lançado (folha futura,
  * impostos a apurar, boletos que ainda não chegaram) NÃO aparece. A nota diz isso.
@@ -80,15 +82,15 @@ function Kpi({
   );
 }
 
-/** Lista de títulos de um dia (abre ao clicar na linha do cronograma). */
-function Titulos({ itens, mostrarVenc = false }: { itens: SaidaTitulo[]; mostrarVenc?: boolean }) {
+/** Lista de títulos de um dia (abre ao clicar na linha do cronograma). Datas = previsão de pagamento. */
+function Titulos({ itens, mostrarData = false }: { itens: SaidaTitulo[]; mostrarData?: boolean }) {
   return (
     <ul className="my-1 space-y-1 rounded-lg border px-3 py-2" style={{ borderColor: COLORS.panelBorder, background: COLORS.panel }}>
       {itens.map((t, i) => (
         <li key={i} className="flex items-baseline gap-2 text-[11px]">
-          {mostrarVenc && (
+          {mostrarData && (
             <span className="w-[38px] shrink-0 tabular-nums" style={{ color: AMBER }}>
-              {ddmm(t.venc)}
+              {ddmm(t.prev)}
             </span>
           )}
           <span className="min-w-0 flex-1 truncate text-white">{t.fornecedor}</span>
@@ -96,6 +98,7 @@ function Titulos({ itens, mostrarVenc = false }: { itens: SaidaTitulo[]; mostrar
             {t.grupo}
             {t.doc ? ` · ${t.doc}` : ""}
             {t.parcela && t.parcela !== "001/001" ? ` · parc. ${t.parcela}` : ""}
+            {t.venc !== t.prev ? ` · venc. ${ddmm(t.venc)}` : ""}
           </span>
           <span className="w-[90px] shrink-0 text-right tabular-nums text-white">{brl(t.valor)}</span>
         </li>
@@ -148,16 +151,16 @@ export function SaidasProjetadas({ dados }: { dados: SaidasProjetadasData | null
           </div>
           <div className="text-right text-xs" style={{ color: COLORS.muted }}>
             <div>
-              {dados.titulosComData} títulos em aberto com vencimento futuro · referência {ddmm(referencia)}
+              {dados.titulosComData} títulos em aberto com pagamento previsto de hoje em diante · referência {ddmm(referencia)}
             </div>
             {dados.atualizadoEm && <div>contas a pagar sincronizadas {dados.atualizadoEm}</div>}
           </div>
         </div>
 
         <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <Kpi label="Com data (90 dias)" valor={brl(dados.comData90d)} cor={COLORS.white} sub={`${dados.dias.length} datas de vencimento`} />
+          <Kpi label="Com data (90 dias)" valor={brl(dados.comData90d)} cor={COLORS.white} sub={`${dados.dias.length} datas de pagamento previstas`} />
           <Kpi
-            label="Vencido desde ago/26"
+            label="Previsto e não pago (ago/26+)"
             valor={brl(dados.vencidoRecente.valor)}
             cor={AMBER}
             sub={
@@ -196,11 +199,13 @@ export function SaidasProjetadas({ dados }: { dados: SaidasProjetadasData | null
 
         <p className="mt-3 text-xs italic" style={{ color: COLORS.muted }}>
           Só o que já está <strong style={{ color: COLORS.white }}>lançado</strong> na Omie (contas a pagar em
-          aberto, pelo vencimento da Omie). Despesa que ainda não virou título — folha do mês que vem,
+          aberto, pela previsão de pagamento da Omie). Despesa que ainda não virou título — folha do mês que vem,
           impostos a apurar, boleto que ainda não chegou — <strong style={{ color: COLORS.white }}>não aparece</strong>.
           Contas a pagar contam <strong style={{ color: COLORS.white }}>a partir de ago/2026</strong> (decisão de
-          25/08/2026): vencido de agosto em diante é exigível e permanece no total até ser baixado na Omie; o
-          vencido anterior a agosto é legado nunca baixado, não saída futura — fica fora do total, visível abaixo.
+          25/08/2026): as datas são a <strong style={{ color: COLORS.white }}>previsão de pagamento</strong> da Omie
+          (o vencimento original aparece no título quando difere); previsto de agosto em diante e não pago é exigível
+          e permanece no total até ser baixado; o anterior a agosto é legado nunca baixado, não saída futura — fica
+          fora do total, visível abaixo.
         </p>
       </div>
 
@@ -239,7 +244,7 @@ export function SaidasProjetadas({ dados }: { dados: SaidasProjetadasData | null
       <div className="mt-3 rounded-xl border p-4" style={{ background: COLORS.bg, borderColor: COLORS.panelBorder }}>
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
           <span style={{ color: COLORS.muted }}>
-            Cronograma por vencimento — {dados.dias.length} {dados.dias.length === 1 ? "data" : "datas"} nos próximos 90 dias ·
+            Cronograma por previsão de pagamento — {dados.dias.length} {dados.dias.length === 1 ? "data" : "datas"} nos próximos 90 dias ·
             clique no dia para ver os títulos
           </span>
           {dados.dias.length > 0 && (
@@ -278,7 +283,7 @@ export function SaidasProjetadas({ dados }: { dados: SaidasProjetadasData | null
                     {brl(dados.vencidoRecente.valor)}
                   </span>
                 </button>
-                {diaAberto === "vencido" && <Titulos itens={dados.titulos.filter((t) => t.vencido)} mostrarVenc />}
+                {diaAberto === "vencido" && <Titulos itens={dados.titulos.filter((t) => t.vencido)} mostrarData />}
               </li>
             )}
             {dados.dias.map((d) => (
@@ -303,7 +308,7 @@ export function SaidasProjetadas({ dados }: { dados: SaidasProjetadasData | null
                   <span className="w-[100px] shrink-0 text-right font-semibold tabular-nums text-white">{brl(d.valor)}</span>
                 </button>
                 {diaAberto === d.data && (
-                  <Titulos itens={dados.titulos.filter((t) => !t.vencido && t.venc === d.data)} />
+                  <Titulos itens={dados.titulos.filter((t) => !t.vencido && t.prev === d.data)} />
                 )}
               </li>
             ))}

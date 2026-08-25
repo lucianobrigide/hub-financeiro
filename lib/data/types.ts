@@ -265,24 +265,26 @@ export interface Recebiveis {
 }
 
 /* ── Saídas projetadas (F.C. Projetado) ─────────────────────────────────────
- * "Quanto já está LANÇADO na Omie para sair, e em que dia vence."
+ * "Quanto já está LANÇADO na Omie para sair, e em que dia está PROGRAMADO."
  * Fonte: contas a pagar da Omie (omie_despesas). Só título em aberto, pelo valor
- * e vencimento da Omie — nada estimado. Despesa ainda não lançada NÃO aparece
+ * e PREVISÃO DE PAGAMENTO da Omie (decisão do Luciano 25/08/2026; fallback:
+ * vencimento) — nada estimado. Despesa ainda não lançada NÃO aparece
  * (folha futura, impostos a apurar, boleto que ainda não chegou): a UI diz isso.
  */
 
 /** Um dia do cronograma de saídas. */
 export interface SaidaDia {
-  /** 'YYYY-MM-DD' — vencimento na Omie. */
+  /** 'YYYY-MM-DD' — previsão de pagamento na Omie. */
   data: string;
   valor: number;
   titulos: number;
 }
 
-/** Saídas agrupadas por linha (DRE) / natureza, nos próximos 90 dias. */
 /** Um título (conta a pagar) do detalhe por dia — abre ao clicar no dia do cronograma. */
 export interface SaidaTitulo {
-  /** 'YYYY-MM-DD' — vencimento na Omie. */
+  /** 'YYYY-MM-DD' — PREVISÃO DE PAGAMENTO na Omie (a data que agenda o caixa; decisão do Luciano 25/08/2026). */
+  prev: string;
+  /** 'YYYY-MM-DD' — vencimento original na Omie (exibido quando difere da previsão). */
   venc: string;
   fornecedor: string;
   /** Natureza (grupo/linha do DRE, mesma classificação dos grupos). */
@@ -296,6 +298,7 @@ export interface SaidaTitulo {
   vencido: boolean;
 }
 
+/** Saídas agrupadas por linha (DRE) / natureza, nos próximos 90 dias. */
 export interface SaidasGrupo {
   grupo: string;
   valor90d: number;
