@@ -626,6 +626,9 @@ interface DedTt {
   /** Cobertura ponderada por receita (0–100). */
   pct_liquidado: number;
   ads_fonte: "tt_ads_diario" | "settlement+provisao";
+  /** Quebra do gasto real GMV Max (só quando ads_fonte === "tt_ads_diario"). */
+  ads_produto: number | null;
+  ads_live: number | null;
 }
 
 /** Retorno do RPC tt_cmv (CMV TikTok via ml_custo_produto + unaccent no seller_sku). */
@@ -1339,7 +1342,7 @@ export const supabaseProvider: DataProvider = {
             ? `${ttDed.pedidos_liquidados} de ${ttDed.pedidos} liquidados — resto provisionado`
             : undefined;
           const adsNota = ttDed.ads_fonte === "tt_ads_diario"
-            ? "gasto real diário (GMV Max)"
+            ? `GMV Max real — Produto ${brlSimples(ttDed.ads_produto ?? 0)} · LIVE ${brlSimples(ttDed.ads_live ?? 0)}`
             : (ttDed.pedidos_provisionados > 0 && ttDed.ads > 0 ? "settlement + provisão" : undefined);
           const afilNota = ttDed.pedidos_afiliado_real > 0
             ? `${ttDed.pedidos_afiliado_real} pedidos com comissão real`
