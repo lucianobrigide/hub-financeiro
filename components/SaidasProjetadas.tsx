@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { SaidasProjetadas as SaidasProjetadasData } from "@/lib/data/types";
+import type { SaidasProjetadas as SaidasProjetadasData, SaidaTitulo } from "@/lib/data/types";
 import { COLORS, Panel, brl } from "./ui";
 
 /**
@@ -80,9 +80,35 @@ function Kpi({
   );
 }
 
+/** Lista de títulos de um dia (abre ao clicar na linha do cronograma). */
+function Titulos({ itens, mostrarVenc = false }: { itens: SaidaTitulo[]; mostrarVenc?: boolean }) {
+  return (
+    <ul className="my-1 space-y-1 rounded-lg border px-3 py-2" style={{ borderColor: COLORS.panelBorder, background: COLORS.panel }}>
+      {itens.map((t, i) => (
+        <li key={i} className="flex items-baseline gap-2 text-[11px]">
+          {mostrarVenc && (
+            <span className="w-[38px] shrink-0 tabular-nums" style={{ color: AMBER }}>
+              {ddmm(t.venc)}
+            </span>
+          )}
+          <span className="min-w-0 flex-1 truncate text-white">{t.fornecedor}</span>
+          <span className="hidden shrink-0 sm:inline" style={{ color: COLORS.muted }}>
+            {t.grupo}
+            {t.doc ? ` · ${t.doc}` : ""}
+            {t.parcela && t.parcela !== "001/001" ? ` · parc. ${t.parcela}` : ""}
+          </span>
+          <span className="w-[90px] shrink-0 text-right tabular-nums text-white">{brl(t.valor)}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function SaidasProjetadas({ dados }: { dados: SaidasProjetadasData | null }) {
   const [cronogramaAberto, setCronogramaAberto] = useState(false);
   const [antigoAberto, setAntigoAberto] = useState(false);
+  // Dia expandido no cronograma ("vencido" = a linha do exigível em D+0).
+  const [diaAberto, setDiaAberto] = useState<string | null>(null);
 
   if (!dados) {
     return (
@@ -213,7 +239,8 @@ export function SaidasProjetadas({ dados }: { dados: SaidasProjetadasData | null
       <div className="mt-3 rounded-xl border p-4" style={{ background: COLORS.bg, borderColor: COLORS.panelBorder }}>
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
           <span style={{ color: COLORS.muted }}>
-            Cronograma por vencimento — {dados.dias.length} {dados.dias.length === 1 ? "data" : "datas"} nos próximos 90 dias
+            Cronograma por vencimento — {dados.dias.length} {dados.dias.length === 1 ? "data" : "datas"} nos próximos 90 dias ·
+            clique no dia para ver os títulos
           </span>
           {dados.dias.length > 0 && (
             <button
@@ -228,21 +255,56 @@ export function SaidasProjetadas({ dados }: { dados: SaidasProjetadasData | null
         </div>
         {cronogramaAberto && dados.dias.length > 0 && (
           <ul className="mt-3 space-y-1.5 border-t pt-3" style={{ borderColor: COLORS.panelBorder }}>
+            {dados.vencidoRecente.valor > 0 && (
+              <li className="text-xs">
+                <button
+                  type="button"
+                  onClick={() => setDiaAberto((a) => (a === "vencido" ? null : "vencido"))}
+                  className="flex w-full items-center gap-2 text-left"
+                >
+                  <span className="w-[38px] shrink-0 tabular-nums" style={{ color: AMBER }}>
+                    venc.
+                  </span>
+                  <span className="w-[34px] shrink-0 text-[10px] tabular-nums" style={{ color: `${AMBER}99` }}>
+                    D+0
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <Barra frac={maiorDia > 0 ? dados.vencidoRecente.valor / maiorDia : 0} cor={AMBER} />
+                  </span>
+                  <span className="w-[44px] shrink-0 text-right text-[10px] tabular-nums" style={{ color: COLORS.muted }}>
+                    {dados.vencidoRecente.titulos} tít.
+                  </span>
+                  <span className="w-[100px] shrink-0 text-right font-semibold tabular-nums" style={{ color: AMBER }}>
+                    {brl(dados.vencidoRecente.valor)}
+                  </span>
+                </button>
+                {diaAberto === "vencido" && <Titulos itens={dados.titulos.filter((t) => t.vencido)} mostrarVenc />}
+              </li>
+            )}
             {dados.dias.map((d) => (
-              <li key={d.data} className="flex items-center gap-2 text-xs">
-                <span className="w-[38px] shrink-0 tabular-nums" style={{ color: COLORS.muted }}>
-                  {ddmm(d.data)}
-                </span>
-                <span className="w-[34px] shrink-0 text-[10px] tabular-nums" style={{ color: `${COLORS.muted}99` }}>
-                  D+{Math.max(difDias(referencia, d.data), 0)}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <Barra frac={maiorDia > 0 ? d.valor / maiorDia : 0} />
-                </span>
-                <span className="w-[44px] shrink-0 text-right text-[10px] tabular-nums" style={{ color: COLORS.muted }}>
-                  {d.titulos} tít.
-                </span>
-                <span className="w-[100px] shrink-0 text-right font-semibold tabular-nums text-white">{brl(d.valor)}</span>
+              <li key={d.data} className="text-xs">
+                <button
+                  type="button"
+                  onClick={() => setDiaAberto((a) => (a === d.data ? null : d.data))}
+                  className="flex w-full items-center gap-2 text-left"
+                >
+                  <span className="w-[38px] shrink-0 tabular-nums" style={{ color: COLORS.muted }}>
+                    {ddmm(d.data)}
+                  </span>
+                  <span className="w-[34px] shrink-0 text-[10px] tabular-nums" style={{ color: `${COLORS.muted}99` }}>
+                    D+{Math.max(difDias(referencia, d.data), 0)}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <Barra frac={maiorDia > 0 ? d.valor / maiorDia : 0} />
+                  </span>
+                  <span className="w-[44px] shrink-0 text-right text-[10px] tabular-nums" style={{ color: COLORS.muted }}>
+                    {d.titulos} tít.
+                  </span>
+                  <span className="w-[100px] shrink-0 text-right font-semibold tabular-nums text-white">{brl(d.valor)}</span>
+                </button>
+                {diaAberto === d.data && (
+                  <Titulos itens={dados.titulos.filter((t) => !t.vencido && t.venc === d.data)} />
+                )}
               </li>
             ))}
           </ul>

@@ -131,6 +131,7 @@ interface OmieSaidasRow {
     fornecedores: { fornecedor: string; valor: number; titulos: number; desde: string }[] | null;
   };
   dias: { data: string; valor: number; titulos: number }[];
+  titulos: { venc: string; fornecedor: string; grupo: string; valor: number; doc: string | null; parcela: string | null; vencido: boolean }[];
   grupos: { grupo: string; valor_90d: number; vencido_recente: number; titulos_90d: number }[];
   atualizado_em: string | null;
 }
@@ -951,6 +952,15 @@ export const supabaseProvider: DataProvider = {
           fornecedores: r.vencido_antigo.fornecedores ?? [],
         },
         dias: (r.dias ?? []).map((d) => ({ data: d.data, valor: d.valor, titulos: d.titulos })),
+        titulos: (r.titulos ?? []).map((t) => ({
+          venc: t.venc,
+          fornecedor: t.fornecedor,
+          grupo: t.grupo,
+          valor: t.valor,
+          doc: t.doc,
+          parcela: t.parcela,
+          vencido: t.vencido,
+        })),
         grupos: (r.grupos ?? []).map((g) => ({
           grupo: g.grupo,
           valor90d: g.valor_90d,

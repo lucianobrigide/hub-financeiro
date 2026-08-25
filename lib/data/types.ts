@@ -280,6 +280,22 @@ export interface SaidaDia {
 }
 
 /** Saídas agrupadas por linha (DRE) / natureza, nos próximos 90 dias. */
+/** Um título (conta a pagar) do detalhe por dia — abre ao clicar no dia do cronograma. */
+export interface SaidaTitulo {
+  /** 'YYYY-MM-DD' — vencimento na Omie. */
+  venc: string;
+  fornecedor: string;
+  /** Natureza (grupo/linha do DRE, mesma classificação dos grupos). */
+  grupo: string;
+  valor: number;
+  /** Nº do documento na Omie (NF/boleto). */
+  doc: string | null;
+  /** "001/059" quando parcelado. */
+  parcela: string | null;
+  /** true = vencido desde o corte (ago/2026) — exigível em D+0. */
+  vencido: boolean;
+}
+
 export interface SaidasGrupo {
   grupo: string;
   valor90d: number;
@@ -317,6 +333,8 @@ export interface SaidasProjetadas {
     fornecedores: { fornecedor: string; valor: number; titulos: number; desde: string }[];
   };
   dias: SaidaDia[];
+  /** Detalhe por título: cronograma de 90d + vencido exigível (flag `vencido`). */
+  titulos: SaidaTitulo[];
   grupos: SaidasGrupo[];
   /** Última sincronização das contas a pagar ("21/08 05:00"). */
   atualizadoEm: string | null;
