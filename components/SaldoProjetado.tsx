@@ -291,8 +291,8 @@ export function SaldoProjetado({
           )}
           {saidas && saidas.vencidoAntigo.valor > 0 && (
             <li>
-              <strong style={{ color: COLORS.white }}>{brl(saidas.vencidoAntigo.valor)}</strong> em títulos vencidos há mais de 30
-              dias na Omie ({saidas.vencidoAntigo.titulos}) — nunca baixados; a confirmar com o financeiro, fora da curva.
+              <strong style={{ color: COLORS.white }}>{brl(saidas.vencidoAntigo.valor)}</strong> em títulos vencidos antes de
+              ago/2026 na Omie ({saidas.vencidoAntigo.titulos}) — legado nunca baixado, fora da curva por decisão (25/08/2026).
             </li>
           )}
           {naoIntegradas.length > 0 && (

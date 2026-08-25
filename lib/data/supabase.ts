@@ -109,9 +109,16 @@ async function rpc<T>(fn: string, args: Record<string, unknown> = {}): Promise<T
   return (await resp.json()) as T;
 }
 
-/** Retorno do RPC `omie_saidas_projetadas` (contas a pagar em aberto na Omie). */
+/**
+ * Retorno do RPC `omie_saidas_projetadas` (contas a pagar em aberto na Omie).
+ * Corte FIXO em 01/08/2026 (decisão do Luciano 25/08/2026): `vencido_recente` =
+ * vencido desde o corte (exigível, D+0); `vencido_antigo` = anterior ao corte
+ * (legado, fora do total por decisão).
+ */
 interface OmieSaidasRow {
   referencia: string;
+  /** 'YYYY-MM-DD' do corte vigente (hoje 2026-08-01, vive na função SQL). */
+  corte: string;
   total_com_data: number;
   titulos_com_data: number;
   com_data_90d: number;

@@ -283,7 +283,7 @@ export interface SaidaDia {
 export interface SaidasGrupo {
   grupo: string;
   valor90d: number;
-  /** Vencido há ≤30 dias e ainda em aberto — exigível agora. */
+  /** Vencido desde o corte (ago/2026) e ainda em aberto — exigível agora. */
   vencidoRecente: number;
   titulos90d: number;
 }
@@ -298,15 +298,17 @@ export interface SaidasProjetadas {
   /** O que vence depois de 90 dias (parcelamentos longos, ex.: DIFAL BA até 2031). */
   apos90d: { valor: number; titulos: number; ate: string | null };
   /**
-   * Vencido há até 30 dias e ainda sem baixa na Omie: exigível agora, sem data.
-   * Entra no total "a pagar" e no saldo projetado em D+0 (erro a favor do caixa).
+   * Vencido desde o corte (01/08/2026 — decisão do Luciano 25/08/2026) e ainda
+   * sem baixa na Omie: exigível agora, sem data. Entra no total "a pagar" e no
+   * saldo projetado em D+0 (erro a favor do caixa) até ser baixado — o corte é
+   * FIXO, não desliza com o tempo.
    */
   vencidoRecente: { valor: number; titulos: number; desde: string | null };
   /**
-   * Vencido há mais de 30 dias: título que nunca foi baixado na Omie (medido em
-   * 21/08/2026: R$ 7,55M, quase tudo NF de compra de distribuidores com meses de
-   * atraso). NÃO é saída futura — fica FORA do total, mas visível, a confirmar
-   * com o financeiro.
+   * Vencido ANTES do corte (ago/2026): legado que nunca foi baixado na Omie
+   * (medido em 21/08/2026: R$ 7,55M, quase tudo NF de compra de distribuidores
+   * com meses de atraso). NÃO é saída futura — fica FORA do total por decisão
+   * (25/08/2026), mas visível por fornecedor.
    */
   vencidoAntigo: {
     valor: number;

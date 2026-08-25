@@ -9,11 +9,13 @@ import { COLORS, Panel, brl } from "./ui";
  *
  * Responde: quanto já está LANÇADO na Omie para sair, e em que dia vence.
  *
- * Três baldes, separados de propósito:
+ * Três baldes, separados de propósito (corte FIXO em ago/2026 — decisão do
+ * Luciano 25/08/2026: "considerar o contas a pagar a partir de agosto, ou projetado"):
  *  • com data (próximos 90 dias) — o cronograma;
- *  • vencido recente (≤30 dias, ainda em aberto) — exigível agora, entra no total;
- *  • vencido antigo (>30 dias) — título que nunca foi baixado na Omie; NÃO é saída
- *    futura, fica FORA do total mas visível (a confirmar com o financeiro).
+ *  • vencido desde ago/2026, ainda em aberto — exigível agora, entra no total
+ *    até ser baixado na Omie (o corte não desliza com o tempo);
+ *  • vencido antes de ago/2026 — legado que nunca foi baixado na Omie; NÃO é
+ *    saída futura, fica FORA do total por decisão, mas visível por fornecedor.
  * REGRA DURA: nada estimado — e o que a Omie ainda não tem lançado (folha futura,
  * impostos a apurar, boletos que ainda não chegaram) NÃO aparece. A nota diz isso.
  */
@@ -129,7 +131,7 @@ export function SaidasProjetadas({ dados }: { dados: SaidasProjetadasData | null
         <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
           <Kpi label="Com data (90 dias)" valor={brl(dados.comData90d)} cor={COLORS.white} sub={`${dados.dias.length} datas de vencimento`} />
           <Kpi
-            label="Vencido recente (≤30d)"
+            label="Vencido desde ago/26"
             valor={brl(dados.vencidoRecente.valor)}
             cor={AMBER}
             sub={
@@ -145,10 +147,10 @@ export function SaidasProjetadas({ dados }: { dados: SaidasProjetadasData | null
             sub={dados.apos90d.titulos > 0 ? `${dados.apos90d.titulos} títulos até ${dados.apos90d.ate ? ddmm(dados.apos90d.ate) + "/" + dados.apos90d.ate.slice(0, 4) : "—"} (fora do horizonte)` : "nenhum"}
           />
           <Kpi
-            label="Vencido antigo (>30d) — fora"
+            label="Vencido pré-ago/26 — fora"
             valor={brl(dados.vencidoAntigo.valor)}
             cor={COLORS.muted}
-            sub={`${dados.vencidoAntigo.titulos} títulos nunca baixados — não entram`}
+            sub={`${dados.vencidoAntigo.titulos} títulos nunca baixados — não entram (decisão 25/08)`}
           />
         </div>
 
@@ -170,8 +172,9 @@ export function SaidasProjetadas({ dados }: { dados: SaidasProjetadasData | null
           Só o que já está <strong style={{ color: COLORS.white }}>lançado</strong> na Omie (contas a pagar em
           aberto, pelo vencimento da Omie). Despesa que ainda não virou título — folha do mês que vem,
           impostos a apurar, boleto que ainda não chegou — <strong style={{ color: COLORS.white }}>não aparece</strong>.
-          O vencido antigo (&gt;30 dias) é título que nunca foi baixado na Omie, não saída futura: fica fora
-          do total até o financeiro confirmar.
+          Contas a pagar contam <strong style={{ color: COLORS.white }}>a partir de ago/2026</strong> (decisão de
+          25/08/2026): vencido de agosto em diante é exigível e permanece no total até ser baixado na Omie; o
+          vencido anterior a agosto é legado nunca baixado, não saída futura — fica fora do total, visível abaixo.
         </p>
       </div>
 
@@ -252,9 +255,9 @@ export function SaidasProjetadas({ dados }: { dados: SaidasProjetadasData | null
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
             <span style={{ color: COLORS.muted }}>
               <strong style={{ color: COLORS.white }}>{brl(dados.vencidoAntigo.valor)}</strong> em{" "}
-              {dados.vencidoAntigo.titulos} títulos vencidos há mais de 30 dias (o mais antigo de{" "}
+              {dados.vencidoAntigo.titulos} títulos vencidos antes de ago/2026 (o mais antigo de{" "}
               {dados.vencidoAntigo.desde ? ddmm(dados.vencidoAntigo.desde) + "/" + dados.vencidoAntigo.desde.slice(0, 4) : "—"}) —{" "}
-              <span style={{ color: AMBER }}>fora do total</span>, a confirmar com o financeiro
+              <span style={{ color: AMBER }}>fora do total</span> por decisão (25/08/2026): legado nunca baixado na Omie
             </span>
             <button
               type="button"
