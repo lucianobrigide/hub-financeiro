@@ -45,18 +45,17 @@ export const RECEBIVEIS_ROSTER: readonly Omit<
     nota: null,
   },
   {
-    // INTEGRADO 17/08/2026 (RPC tt_recebiveis), mas FORA DO TOTAL — decisão do
-    // Luciano: o TikTok não informa data de liquidação e o repasse varia 73%–101%
-    // do pago (a plataforma subsidia; o settlement sai sobre a receita, que foi
-    // 104%–117% do que o cliente pagou). O card é informativo: bruto real pendente
-    // de liquidação + a faixa histórica de repasse, sem projetar número único.
-    // 22/08/2026: a DATA passou a existir (pedido do Luciano: data em TODAS) —
-    // o TikTok liquida no statement DIÁRIO de (entrega UTC + 7), medido em 278
-    // pedidos (97,7% não-otimista); coletado → coleta+14, pré-envio → venda+17.
-    // Valor segue bruto/fora do total até decisão sobre entrar com líquido projetado.
+    // INTEGRADO 17/08/2026 (RPC tt_recebiveis). Ficou FORA DO TOTAL de 17 a
+    // 25/08 (o TikTok não informava data nem valor final do repasse). A DATA
+    // virou derivada em 22/08 (statement DIÁRIO de entrega UTC + 7, 97,7%
+    // não-otimista; coletado → coleta+14, pré-envio → venda+17). Em 25/08/2026
+    // o Luciano decidiu a Opção B: o VALOR entra no total e na curva como
+    // LÍQUIDO PROJETADO = bruto × razão móvel 60d (settlement/pago dos
+    // liquidados, capada em 1.0), auto-corrigida pedido a pedido pelo
+    // statement real. Base < 50 liquidados em 60d → volta ao bruto/fora do total.
     id: "tiktok",
     nome: "TikTok Shop",
-    fonte: "pedidos pagos aguardando liquidação — data derivada do statement diário (entrega + 7d); valor = bruto pago (repasse final varia)",
+    fonte: "líquido projetado (bruto × razão 60d dos liquidados, auto-corrigido pelo statement real) — data derivada do statement diário (entrega + 7d)",
     integrado: false,
     nota: null,
   },

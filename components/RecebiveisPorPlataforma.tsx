@@ -307,8 +307,9 @@ export function RecebiveisPorPlataforma({ dados }: { dados: Recebiveis | null })
 
   const { referencia, plataformas } = dados;
   const integradas = plataformas.filter((p) => p.integrado);
-  // `foraDoTotal` existe pro TikTok: número real, mas não é caixa líquido —
-  // some no card, nunca no consolidado.
+  // `foraDoTotal`: número real que não é caixa líquido — aparece no card, nunca
+  // no consolidado. Hoje nenhum canal (o TikTok só volta pra cá se a projeção
+  // da Opção B, 25/08/2026, se suspender por base curta de liquidados).
   const somam = integradas.filter((p) => !p.foraDoTotal);
   const foraDoTotal = integradas.filter((p) => p.foraDoTotal);
   const totalGeral = somam.reduce((s, p) => s + (p.total ?? 0), 0);

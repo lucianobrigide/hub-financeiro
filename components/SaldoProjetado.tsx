@@ -14,9 +14,10 @@ import { COLORS, Panel, brl } from "./ui";
  *
  * Tudo o que NÃO tem data fica FORA da curva e é listado embaixo, com valor:
  * recebível sem data (Shopee em trânsito, Amazon ciclo aberto, SHEIN sem check
- * order, Magalu), TikTok (fora do total), saídas após o horizonte, vencido antigo.
- * E o que a Omie ainda não tem lançado não existe aqui — a nota diz isso.
- * REGRA DURA: nenhum número da curva é estimado; só soma de fatos com data.
+ * order, Magalu), plataforma fora do total, saídas após o horizonte, vencido
+ * antigo. E o que a Omie ainda não tem lançado não existe aqui — a nota diz isso.
+ * Valores vêm da API; única projeção admitida é a do TikTok (Opção B, 25/08/2026:
+ * bruto × razão 60d, auto-corrigida pelo statement real — decisão do Luciano).
  */
 
 const AMBER = "#ffb84d";
@@ -69,7 +70,7 @@ export function SaldoProjetado({
     );
   }
 
-  // Entradas com data: só plataformas integradas que SOMAM (TikTok fica fora).
+  // Entradas com data: só plataformas integradas que SOMAM (foraDoTotal fica fora).
   const somam = (recebiveis?.plataformas ?? []).filter((p) => p.integrado && !p.foraDoTotal);
   const entradasPorDia = new Map<string, number>();
   for (const p of somam) {
@@ -113,7 +114,7 @@ export function SaldoProjetado({
     (a, p) => a + p.dias.filter((d) => difDias(referencia, d.data) > horizonte).reduce((s, d) => s + d.valor, 0),
     0,
   );
-  const tiktok = (recebiveis?.plataformas ?? []).filter((p) => p.integrado && p.foraDoTotal);
+  const foraDoTotal = (recebiveis?.plataformas ?? []).filter((p) => p.integrado && p.foraDoTotal);
   const saidasAlemHorizonte =
     (saidas?.dias ?? []).filter((d) => difDias(referencia, d.data) > horizonte).reduce((s, d) => s + d.valor, 0) +
     (saidas?.apos90d.valor ?? 0);
@@ -277,11 +278,10 @@ export function SaldoProjetado({
               <strong style={{ color: COLORS.white }}>{brl(recAlemHorizonte)}</strong> a receber com data depois de D+{horizonte}.
             </li>
           )}
-          {tiktok.map((p) => (
+          {foraDoTotal.map((p) => (
             <li key={p.id}>
-              <strong style={{ color: COLORS.white }}>{p.total != null ? brl(p.total) : "—"}</strong> {p.nome}: bruto pago pelo
-              cliente aguardando liquidação — fora do total por decisão (a data existe; o valor final do repasse varia
-              e ainda não entra na curva).
+              <strong style={{ color: COLORS.white }}>{p.total != null ? brl(p.total) : "—"}</strong> {p.nome}: valor fora do
+              total consolidado — não entra na curva (o motivo está no card da plataforma).
             </li>
           ))}
           {saidasAlemHorizonte > 0 && (

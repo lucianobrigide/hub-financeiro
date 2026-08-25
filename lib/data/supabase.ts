@@ -207,11 +207,20 @@ interface ShopeeRecebiveisRow {
 }
 
 /**
- * Retorno do RPC `tt_recebiveis`. `total` é o BRUTO pago pelo cliente em pedidos
- * ainda não liquidados — informativo, não caixa líquido (ver `foraDoTotal`).
+ * Retorno do RPC `tt_recebiveis`. Desde 25/08/2026 (Opção B — decisão do
+ * Luciano) o `total` é o LÍQUIDO PROJETADO: bruto × razão móvel 60d
+ * (settlement/pago dos liquidados, capada em 1.0 a favor do caixa),
+ * auto-corrigida pedido a pedido — quando o statement real chega, o pedido
+ * liquida e sai do conjunto pendente, então nada projetado sobrevive ao dado
+ * real. Com `projetado=false` (base < 50 liquidados em 60d) os valores voltam
+ * ao bruto e o card volta pra fora do total, como era de 17 a 25/08.
  */
 interface TtRecebiveisRow {
   referencia: string;
+  /** true = valores na escala projetada (bruto × razão 60d); false = fallback bruto. */
+  projetado: boolean;
+  /** Σ pago pelo cliente nos pedidos pendentes de liquidação (sempre real). */
+  bruto: number;
   total: number;
   pedidos: number;
   mais_antigo: string | null;
@@ -219,15 +228,16 @@ interface TtRecebiveisRow {
   repasse_min: number | null;
   repasse_max: number | null;
   meses_base: number;
-  /** Razão settlement/pago dos liquidados nos últimos 60d (%), e o bruto × essa razão — só pra nota. */
+  /** Razão settlement/pago dos liquidados nos últimos 60d (%) e o nº de pedidos dessa base. */
   repasse_mediano_60d: number | null;
+  base_razao: number;
   liquido_indicativo: number | null;
   atualizado_em: string | null;
   /**
    * Data DERIVADA (22/08/2026): o TikTok liquida no statement diário de
    * (entrega UTC + 7) — 97,7% não-otimista. Camadas: entregue → entrega+7 ·
    * coletado → coleta+14 · pré-envio → venda+17; detector por camada contra o
-   * statement_time real. O VALOR segue o bruto (fora do total).
+   * statement_time real. Valores na mesma escala do `total`.
    */
   dias: { data: string; valor: number }[];
   com_data: number;
@@ -850,18 +860,22 @@ export const supabaseProvider: DataProvider = {
       // mantém o card como "aguardando integração"
     }
 
-    // TikTok. FORA DO TOTAL (decisão do Luciano 17/08/2026): sem data de
-    // liquidação e com repasse de 73%–101% do pago (a plataforma subsidia), um
-    // número único de caixa não se sustenta. O card mostra o bruto REAL pendente
-    // de liquidação + a faixa histórica de repasse, como informação.
+    // TikTok. LÍQUIDO PROJETADO (Opção B — decisão do Luciano 25/08/2026):
+    // total = bruto × razão móvel 60d (settlement/pago dos liquidados), que se
+    // auto-corrige pedido a pedido quando o statement real chega. Entra no
+    // total consolidado e na curva. Se a base de liquidados ficar curta
+    // (projetado=false), o card volta ao bruto/fora do total, como 17–25/08.
     try {
       const tt = await rpc<TtRecebiveisRow>("tt_recebiveis");
       const i = plataformas.findIndex((p) => p.id === "tiktok");
       if (tt && i >= 0) {
         const faixa =
           tt.repasse_min != null && tt.repasse_max != null
-            ? ` · historicamente o repasse ficou entre ${pctBr(tt.repasse_min)} e ${pctBr(tt.repasse_max)} desse valor (${tt.meses_base} meses medidos)${tt.repasse_mediano_60d != null && tt.liquido_indicativo != null ? `; nos últimos 60d, ${pctBr(tt.repasse_mediano_60d)} — se entrasse na curva por essa razão seriam ~${brlSimples(tt.liquido_indicativo)} (decisão pendente)` : ""}`
+            ? ` · faixa histórica do repasse: ${pctBr(tt.repasse_min)}–${pctBr(tt.repasse_max)} do pago (${tt.meses_base} meses medidos)`
             : "";
+        const selo = tt.projetado
+          ? `LÍQUIDO PROJETADO: bruto ${brlSimples(tt.bruto)} × razão 60d ${tt.repasse_mediano_60d != null ? pctBr(tt.repasse_mediano_60d) : "?"} (${tt.base_razao} liquidados) — auto-corrigido pedido a pedido pelo statement real`
+          : `valor BRUTO (projeção suspensa: só ${tt.base_razao} liquidados nos últimos 60d, mínimo 50) — fora do total`;
         // Data DERIVADA (22/08/2026): statement diário de (entrega + 7). Selo por camada.
         const cam = tt.camadas;
         const pct = (v: number | null) => (v != null ? `${Math.round(v * 100)}%` : "?");
@@ -884,14 +898,15 @@ export const supabaseProvider: DataProvider = {
         plataformas[i] = {
           ...plataformas[i],
           integrado: true,
-          foraDoTotal: true,
-          rotuloValor: "Pago, a liquidar",
+          foraDoTotal: !tt.projetado,
+          rotuloValor: tt.projetado ? "Líquido projetado" : "Pago, a liquidar",
           total: tt.total,
           disponivel: null,
           valorSemData: tt.sem_data !== 0 ? tt.sem_data : null,
           dias: (tt.dias ?? []).map((d) => ({ data: d.data, valor: d.valor })),
           atualizadoEm: tt.atualizado_em ? fmtDataHora(tt.atualizado_em) : null,
           nota: [
+            selo,
             `${tt.pedidos} pedidos pagos aguardando liquidação${tt.mais_antigo ? `, o mais antigo de ${fmtDia(tt.mais_antigo)}` : ""}${faixa}`,
             ...camadas,
           ].join(" · "),

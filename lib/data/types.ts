@@ -239,11 +239,11 @@ export interface RecebiveisPlataforma {
   /** Observação exibida no card (ex.: "API em conexão — próxima da fila"). */
   nota?: string | null;
   /**
-   * true = o card mostra um número REAL, mas ele NÃO entra no total consolidado.
-   * Hoje só o TikTok (decisão do Luciano 17/08/2026): a plataforma não informa
-   * data de liquidação E o repasse varia 73%–101% do pago (a TikTok subsidia, e
-   * o settlement sai sobre a receita, não sobre o que o cliente pagou). O valor
-   * exibido é o bruto pago pelo cliente — informativo, não caixa líquido.
+   * true = o card mostra um número REAL, mas ele NÃO entra no total consolidado
+   * nem na curva de saldo. O TikTok viveu assim de 17 a 25/08/2026 (valor bruto,
+   * repasse variando 73%–101% do pago); desde 25/08 (Opção B — decisão do
+   * Luciano) ele SOMA com líquido projetado (bruto × razão 60d) e o flag só
+   * volta se a base de liquidados ficar curta (projeção suspensa).
    */
   foraDoTotal?: boolean;
   /** Rótulo do valor quando ele não é "a receber" líquido (ex.: "Pago, a liquidar"). */
