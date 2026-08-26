@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { CronsStatus, DashboardData, DataProvider, DreDrift, DreItem, Month, PlataformaDre, Recebiveis, SaidasProjetadas, SaldoCaixa, SerieDiariaItem, SkuDre, VendaDiaria } from "./types";
+import type { CronsStatus, DashboardData, DataProvider, DreDrift, DreItem, FcHistoricoDia, Month, PlataformaDre, Recebiveis, SaidasProjetadas, SaldoCaixa, SerieDiariaItem, SkuDre, VendaDiaria } from "./types";
 import { hojeBrt, recebiveisVazios } from "./recebiveis";
 
 /** Labels das 6 deduções do mini-DRE, na ordem do card. */
@@ -151,6 +151,20 @@ interface FcSaldoCaixaRow {
     saldo_atual: number | null;
     saldo_conciliado: number | null;
     coletado_em: string | null;
+  }[];
+}
+
+/** Retorno do RPC `fc_historico` (dias passados com caixa fechado, de fc_snapshot). */
+interface FcHistoricoRow {
+  referencia: string;
+  dias: {
+    data: string;
+    abertura: number | null;
+    fechamento: number | null;
+    fechamento_data: string | null;
+    movimento: number | null;
+    ent_prev: number | null;
+    sai_prev: number | null;
   }[];
 }
 
@@ -995,6 +1009,25 @@ export const supabaseProvider: DataProvider = {
           saldoConciliado: c.saldo_conciliado,
         })),
       };
+    } catch {
+      return null;
+    }
+  },
+
+  /** Dias fechados do F.C. — RPC `fc_historico` (fotos de fc_snapshot; fechamento = foto da manhã seguinte). */
+  async getFcHistorico(): Promise<FcHistoricoDia[] | null> {
+    try {
+      const r = await rpc<FcHistoricoRow>("fc_historico");
+      if (!r) return null;
+      return (r.dias ?? []).map((d) => ({
+        data: d.data,
+        abertura: d.abertura,
+        fechamento: d.fechamento,
+        fechamentoData: d.fechamento_data,
+        movimento: d.movimento,
+        entradasPrevistas: d.ent_prev,
+        saidasPrevistas: d.sai_prev,
+      }));
     } catch {
       return null;
     }

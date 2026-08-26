@@ -9,10 +9,11 @@ import { COLORS } from "@/components/ui";
 export const dynamic = "force-dynamic";
 
 export default async function FluxoCaixaPage() {
-  const [recebiveis, saidas, saldo] = await Promise.all([
+  const [recebiveis, saidas, saldo, historico] = await Promise.all([
     dataProvider.getRecebiveis?.() ?? Promise.resolve(null),
     dataProvider.getSaidasProjetadas?.() ?? Promise.resolve(null),
     dataProvider.getSaldoCaixa?.() ?? Promise.resolve(null),
+    dataProvider.getFcHistorico?.() ?? Promise.resolve(null),
   ]);
 
   return (
@@ -26,7 +27,7 @@ export default async function FluxoCaixaPage() {
         </p>
       </div>
 
-      <SaldoProjetado recebiveis={recebiveis} saidas={saidas} saldo={saldo} />
+      <SaldoProjetado recebiveis={recebiveis} saidas={saidas} saldo={saldo} historico={historico} />
 
       <RecebiveisPorPlataforma dados={recebiveis} />
 

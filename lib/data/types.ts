@@ -369,6 +369,29 @@ export interface SaldoCaixa {
   contas: SaldoCaixaConta[];
 }
 
+/* ── Histórico do F.C. (dias fechados) ──────────────────────────────────────
+ * O dia que passou não some da curva: fica com o caixa FECHADO. Fonte é a foto
+ * diária de fc_snapshot (08:45 BRT, desde 25/08/2026): abertura = saldo em conta
+ * na foto do próprio dia; fechamento = saldo da foto seguinte (a manhã de D+1
+ * fecha o dia D). Nada estimado — os dois saldos são o dado real da Omie.
+ */
+export interface FcHistoricoDia {
+  /** 'YYYY-MM-DD' do dia fechado. */
+  data: string;
+  /** Saldo em conta na foto do próprio dia (08:45). */
+  abertura: number | null;
+  /** Saldo em conta na foto seguinte = caixa fechado do dia. null = ainda sem foto de fechamento. */
+  fechamento: number | null;
+  /** Dia da foto que fechou (normalmente data+1; maior se uma foto faltou no meio). */
+  fechamentoData: string | null;
+  /** fechamento − abertura: movimento líquido REAL do dia. */
+  movimento: number | null;
+  /** O que a curva daquele dia projetava de entradas em D+0 (backtest). */
+  entradasPrevistas: number | null;
+  /** O que a curva daquele dia projetava de saídas em D+0 (backtest). */
+  saidasPrevistas: number | null;
+}
+
 export interface DataProvider {
   /**
    * Lista os meses disponíveis (mais recente primeiro).
@@ -438,6 +461,11 @@ export interface DataProvider {
    * `null` => sem dado. OPCIONAL.
    */
   getSaldoCaixa?(): Promise<SaldoCaixa | null>;
+  /**
+   * Dias já passados do F.C. com caixa fechado (fotos de fc_snapshot).
+   * `null`/vazio => sem histórico ainda. OPCIONAL.
+   */
+  getFcHistorico?(): Promise<FcHistoricoDia[] | null>;
 }
 
 /** Resultado da trava de fechamento (RPC omie_dre_drift). */

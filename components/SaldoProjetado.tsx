@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { Recebiveis, SaidasProjetadas, SaldoCaixa } from "@/lib/data/types";
+import type { FcHistoricoDia, Recebiveis, SaidasProjetadas, SaldoCaixa } from "@/lib/data/types";
 import { COLORS, Panel, brl } from "./ui";
 
 /**
@@ -18,6 +18,11 @@ import { COLORS, Panel, brl } from "./ui";
  * antigo. E o que a Omie ainda não tem lançado não existe aqui — a nota diz isso.
  * Valores vêm da API; única projeção admitida é a do TikTok (Opção B, 25/08/2026:
  * bruto × razão 60d, auto-corrigida pelo statement real — decisão do Luciano).
+ *
+ * PASSADO (26/08/2026, pedido do Luciano): o dia que passou não some — fica no
+ * topo da curva com o caixa FECHADO (`historico`, de fc_snapshot): fechamento =
+ * saldo real em conta na foto da manhã seguinte; a coluna de movimento mostra o
+ * líquido REAL do dia (fechamento − abertura), não a projeção.
  */
 
 const AMBER = "#ffb84d";
@@ -51,10 +56,12 @@ export function SaldoProjetado({
   recebiveis,
   saidas,
   saldo,
+  historico,
 }: {
   recebiveis: Recebiveis | null;
   saidas: SaidasProjetadas | null;
   saldo: SaldoCaixa | null;
+  historico?: FcHistoricoDia[] | null;
 }) {
   const [horizonte, setHorizonte] = useState<(typeof HORIZONTES)[number]>(30);
   const [soMovimento, setSoMovimento] = useState(true);
@@ -104,8 +111,18 @@ export function SaldoProjetado({
   const totSaidas = curva.reduce((a, x) => a + x.saidas, 0);
   const fim = curva[curva.length - 1];
   const minimo = curva.reduce((m, x) => (x.saldo < m.saldo ? x : m), curva[0]);
-  const maxAbs = curva.reduce((m, x) => Math.max(m, Math.abs(x.saldo)), 0);
   const linhas = soMovimento ? curva.filter((x) => x.d === 0 || x.entradas > 0 || x.saidas > 0 || x.d === horizonte) : curva;
+
+  // Passado: dias fechados (fotos de fc_snapshot). Saldo do dia = caixa fechado
+  // (foto da manhã seguinte); se ainda não fechou, mostra a abertura.
+  const passado = (historico ?? [])
+    .filter((h) => difDias(h.data, referencia) > 0)
+    .map((h) => ({ ...h, atras: difDias(h.data, referencia), saldoDia: h.fechamento ?? h.abertura }))
+    .sort((a, b) => (a.data < b.data ? -1 : 1));
+  const maxAbs = [...curva.map((x) => Math.abs(x.saldo)), ...passado.map((h) => Math.abs(h.saldoDia ?? 0))].reduce(
+    (m, v) => Math.max(m, v),
+    0,
+  );
 
   // Fora da curva (sem data) — listado com valor, nunca somado.
   const recSemData = somam.reduce((a, p) => a + (p.valorSemData ?? 0), 0);
@@ -213,6 +230,8 @@ export function SaldoProjetado({
             Curva dia a dia · <span style={{ color: COLORS.cyan }}>entradas</span> ·{" "}
             <span style={{ color: COLORS.red }}>saídas</span> · saldo
             {saldoInicial == null && " (sem saldo inicial: a coluna saldo mostra só a variação acumulada)"}
+            {passado.length > 0 &&
+              " · dias passados: movimento líquido REAL e caixa fechado (fotos das 08:45 da Omie — histórico desde 25/08/2026)"}
           </span>
           <button
             type="button"
@@ -224,6 +243,61 @@ export function SaldoProjetado({
           </button>
         </div>
         <ul className="mt-2 space-y-1 border-t pt-2" style={{ borderColor: COLORS.panelBorder }}>
+          {passado.map((h) => (
+            <li key={h.data} className="flex items-center gap-2 text-xs" style={{ opacity: 0.7 }}>
+              <span className="w-[38px] shrink-0 tabular-nums" style={{ color: COLORS.muted }}>
+                {ddmm(h.data)}
+              </span>
+              <span className="w-[34px] shrink-0 text-[10px] tabular-nums" style={{ color: `${COLORS.muted}99` }}>
+                D−{h.atras}
+              </span>
+              <span
+                className="w-[96px] shrink-0 text-right tabular-nums"
+                style={{ color: h.movimento != null && h.movimento > 0 ? COLORS.cyan : `${COLORS.muted}66` }}
+              >
+                {h.movimento != null && h.movimento > 0 ? `+${brl(h.movimento)}` : "·"}
+              </span>
+              <span
+                className="w-[96px] shrink-0 text-right tabular-nums"
+                style={{ color: h.movimento != null && h.movimento < 0 ? COLORS.red : `${COLORS.muted}66` }}
+              >
+                {h.movimento != null && h.movimento < 0 ? `−${brl(Math.abs(h.movimento))}` : "·"}
+              </span>
+              <span className="min-w-0 flex-1">
+                <div className="h-2 w-full overflow-hidden rounded-full" style={{ background: COLORS.panelBorder }}>
+                  <div
+                    className="h-full rounded-full"
+                    style={{
+                      width:
+                        maxAbs > 0 && h.saldoDia != null
+                          ? `max(2px, ${((Math.abs(h.saldoDia) / maxAbs) * 100).toFixed(2)}%)`
+                          : 0,
+                      background: h.saldoDia != null ? corSaldo(h.saldoDia) : COLORS.panelBorder,
+                    }}
+                  />
+                </div>
+              </span>
+              <span
+                className="w-[110px] shrink-0 text-right font-semibold tabular-nums"
+                style={{ color: h.saldoDia != null ? corSaldo(h.saldoDia) : COLORS.muted }}
+                title={
+                  h.fechamento != null
+                    ? `caixa fechado pela foto de ${h.fechamentoData ? ddmm(h.fechamentoData) : "—"} (abertura ${h.abertura != null ? brl(h.abertura) : "—"})`
+                    : "ainda sem foto de fechamento — mostrando a abertura do dia"
+                }
+              >
+                {h.saldoDia != null ? brl(h.saldoDia) : "—"}
+                {h.fechamento == null && " *"}
+              </span>
+            </li>
+          ))}
+          {passado.length > 0 && (
+            <li className="flex items-center gap-2 text-[10px] uppercase tracking-wider" style={{ color: `${COLORS.muted}99` }}>
+              <span className="h-px flex-1" style={{ background: COLORS.panelBorder }} />
+              <span>hoje — projeção daqui pra frente</span>
+              <span className="h-px flex-1" style={{ background: COLORS.panelBorder }} />
+            </li>
+          )}
           {linhas.map((x) => (
             <li key={x.data} className="flex items-center gap-2 text-xs">
               <span className="w-[38px] shrink-0 tabular-nums" style={{ color: COLORS.muted }}>
