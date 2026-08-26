@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { FcHistoricoDia, Recebiveis, SaidasProjetadas, SaldoCaixa } from "@/lib/data/types";
+import type { FcHistorico, Recebiveis, SaidasProjetadas, SaldoCaixa } from "@/lib/data/types";
 import { COLORS, Panel, brl } from "./ui";
 
 /**
@@ -63,7 +63,7 @@ export function SaldoProjetado({
   recebiveis: Recebiveis | null;
   saidas: SaidasProjetadas | null;
   saldo: SaldoCaixa | null;
-  historico?: FcHistoricoDia[] | null;
+  historico?: FcHistorico | null;
 }) {
   const [horizonte, setHorizonte] = useState<(typeof HORIZONTES)[number]>(30);
   const [soMovimento, setSoMovimento] = useState(true);
@@ -99,13 +99,25 @@ export function SaldoProjetado({
     saidasPorDia.set(referencia, (saidasPorDia.get(referencia) ?? 0) + vencidoRecente);
   }
 
-  const saldoInicial = saldo?.total ?? null;
+  // HOJE real (26/08/2026, pedido do Luciano): quando o extrato do dia está
+  // completo, o D+0 parte do fechamento REAL de ontem e soma o movimento REAL
+  // já ocorrido hoje ao projetado restante — pagamento feito de manhã (ex.:
+  // boleto previsto p/ ontem pago hoje) aparece nas saídas de hoje.
+  const hojeReal = historico?.hoje && historico.hoje.abertura != null ? historico.hoje : null;
+  /** Saldo em conta na última coleta (card). */
+  const saldoConta = saldo?.total ?? null;
+  /** Base da curva: abertura REAL de hoje (fechamento de ontem no extrato); fallback foto. */
+  const saldoInicial = hojeReal ? hojeReal.abertura : saldoConta;
   const curva: DiaProj[] = [];
   let acumulado = saldoInicial ?? 0;
   for (let d = 0; d <= horizonte; d++) {
     const data = addDias(referencia, d);
-    const e = entradasPorDia.get(data) ?? 0;
-    const s = saidasPorDia.get(data) ?? 0;
+    let e = entradasPorDia.get(data) ?? 0;
+    let s = saidasPorDia.get(data) ?? 0;
+    if (d === 0 && hojeReal) {
+      e += hojeReal.entReal;
+      s += hojeReal.saiReal;
+    }
     acumulado += e - s;
     curva.push({ data, d, entradas: e, saidas: s, saldo: acumulado });
   }
@@ -117,7 +129,7 @@ export function SaldoProjetado({
 
   // Passado: dias fechados (fotos de fc_snapshot). Saldo do dia = caixa fechado
   // (foto da manhã seguinte); se ainda não fechou, mostra a abertura.
-  const passado = (historico ?? [])
+  const passado = (historico?.dias ?? [])
     .filter((h) => difDias(h.data, referencia) > 0)
     .map((h) => ({ ...h, atras: difDias(h.data, referencia), saldoDia: h.fechamento ?? h.abertura }))
     .sort((a, b) => (a.data < b.data ? -1 : 1));
@@ -185,8 +197,8 @@ export function SaldoProjetado({
             <div className="text-[10px] uppercase tracking-wider" style={{ color: COLORS.muted }}>
               Saldo em conta hoje
             </div>
-            <div className="text-base font-bold" style={{ color: saldoInicial == null ? COLORS.muted : COLORS.white }}>
-              {saldoInicial == null ? "— sem dado" : brl(saldoInicial)}
+            <div className="text-base font-bold" style={{ color: saldoConta == null ? COLORS.muted : COLORS.white }}>
+              {saldoConta == null ? "— sem dado" : brl(saldoConta)}
             </div>
             <div className="text-[11px]" style={{ color: COLORS.muted }}>
               {saldo ? `${saldo.contasCaixa} contas de caixa (Omie)${saldo.coletadoEm ? ` · ${saldo.coletadoEm}` : ""}` : "Omie não coletado"}
@@ -234,6 +246,8 @@ export function SaldoProjetado({
             {saldoInicial == null && " (sem saldo inicial: a coluna saldo mostra só a variação acumulada)"}
             {passado.length > 0 &&
               " · dias passados: entradas e saídas REAIS do extrato da Omie (contas de caixa, transferências internas excluídas) e caixa fechado no fim do dia"}
+            {hojeReal &&
+              ` · hoje (D+0): abre no fechamento de ontem e já inclui o movimento REAL do dia (+${brl(hojeReal.entReal)} / −${brl(hojeReal.saiReal)}${hojeReal.coletadoEm ? `, extrato coletado ${hojeReal.coletadoEm}` : ""}) somado ao previsto restante`}
           </span>
           <button
             type="button"

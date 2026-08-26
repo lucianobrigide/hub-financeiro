@@ -94,8 +94,8 @@ function TitulosHistorico({ itens }: { itens: SaidaHistoricoTitulo[] }) {
     <ul className="my-1 space-y-1 rounded-lg border px-3 py-2" style={{ borderColor: COLORS.panelBorder, background: COLORS.panel }}>
       {itens.map((t, i) => (
         <li key={i} className="flex items-baseline gap-2 text-[11px]">
-          <span className="w-[64px] shrink-0" style={{ color: t.pago ? COLORS.green : AMBER }}>
-            {t.pago ? "✓ pago" : "em aberto"}
+          <span className="w-[92px] shrink-0" style={{ color: t.pago ? COLORS.green : AMBER }}>
+            {t.pago ? (t.pagoEm ? `✓ pago ${ddmm(t.pagoEm)}` : "✓ pago") : "em aberto"}
           </span>
           <span className="min-w-0 flex-1 truncate text-white">{t.fornecedor}</span>
           <span className="hidden shrink-0 sm:inline" style={{ color: COLORS.muted }}>

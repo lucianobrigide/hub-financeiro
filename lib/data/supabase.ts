@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { CronsStatus, DashboardData, DataProvider, DreDrift, DreItem, FcHistoricoDia, Month, PlataformaDre, Recebiveis, SaidasProjetadas, SaldoCaixa, SerieDiariaItem, SkuDre, SkuVendaDia, VendaDiaria } from "./types";
+import type { CronsStatus, DashboardData, DataProvider, DreDrift, DreItem, FcHistorico, Month, PlataformaDre, Recebiveis, SaidasProjetadas, SaldoCaixa, SerieDiariaItem, SkuDre, SkuVendaDia, VendaDiaria } from "./types";
 import { hojeBrt, recebiveisVazios } from "./recebiveis";
 
 /** Labels das 6 deduções do mini-DRE, na ordem do card. */
@@ -135,7 +135,7 @@ interface OmieSaidasRow {
   grupos: { grupo: string; valor_90d: number; vencido_recente: number; titulos_90d: number }[];
   /** Dias passados do cronograma (desde o corte): previsto no dia + status pago/aberto. */
   historico: { data: string; pago: number; aberto: number; titulos: number }[];
-  historico_titulos: { prev: string; venc: string; fornecedor: string; grupo: string; valor: number; doc: string | null; parcela: string | null; pago: boolean }[];
+  historico_titulos: { prev: string; venc: string; fornecedor: string; grupo: string; valor: number; doc: string | null; parcela: string | null; pago: boolean; pago_em: string | null }[];
   atualizado_em: string | null;
 }
 
@@ -157,9 +157,17 @@ interface FcSaldoCaixaRow {
   }[];
 }
 
-/** Retorno do RPC `fc_historico` (dias passados: extrato real da Omie, fallback fotos do fc_snapshot). */
+/** Retorno do RPC `fc_historico` (dias passados: extrato real da Omie, fallback fotos do fc_snapshot; + hoje parcial). */
 interface FcHistoricoRow {
   referencia: string;
+  hoje: {
+    data: string;
+    abertura: number | null;
+    ent_real: number;
+    sai_real: number;
+    completo: boolean;
+    coletado_em: string | null;
+  } | null;
   dias: {
     data: string;
     abertura: number | null;
@@ -1003,6 +1011,7 @@ export const supabaseProvider: DataProvider = {
           doc: t.doc,
           parcela: t.parcela,
           pago: t.pago,
+          pagoEm: t.pago_em,
         })),
         atualizadoEm: r.atualizado_em ? fmtDataHora(r.atualizado_em) : null,
       };
@@ -1036,23 +1045,37 @@ export const supabaseProvider: DataProvider = {
     }
   },
 
-  /** Dias fechados do F.C. — RPC `fc_historico` (fotos de fc_snapshot; fechamento = foto da manhã seguinte). */
-  async getFcHistorico(): Promise<FcHistoricoDia[] | null> {
+  /** Histórico do F.C. — RPC `fc_historico`: dias fechados pelo extrato (fallback foto) + hoje parcial. */
+  async getFcHistorico(): Promise<FcHistorico | null> {
     try {
       const r = await rpc<FcHistoricoRow>("fc_historico");
       if (!r) return null;
-      return (r.dias ?? []).map((d) => ({
-        data: d.data,
-        abertura: d.abertura,
-        fechamento: d.fechamento,
-        fonte: d.fonte,
-        fechamentoData: d.fechamento_data,
-        entReal: d.ent_real,
-        saiReal: d.sai_real,
-        movimento: d.movimento,
-        entradasPrevistas: d.ent_prev,
-        saidasPrevistas: d.sai_prev,
-      }));
+      return {
+        dias: (r.dias ?? []).map((d) => ({
+          data: d.data,
+          abertura: d.abertura,
+          fechamento: d.fechamento,
+          fonte: d.fonte,
+          fechamentoData: d.fechamento_data,
+          entReal: d.ent_real,
+          saiReal: d.sai_real,
+          movimento: d.movimento,
+          entradasPrevistas: d.ent_prev,
+          saidasPrevistas: d.sai_prev,
+        })),
+        // hoje só entra COMPLETO (todas as contas de caixa no extrato do dia);
+        // incompleto => null e a curva cai no comportamento por foto.
+        hoje:
+          r.hoje && r.hoje.completo && r.hoje.abertura != null
+            ? {
+                data: r.hoje.data,
+                abertura: r.hoje.abertura,
+                entReal: r.hoje.ent_real,
+                saiReal: r.hoje.sai_real,
+                coletadoEm: r.hoje.coletado_em ? fmtDataHora(r.hoje.coletado_em) : null,
+              }
+            : null,
+      };
     } catch {
       return null;
     }

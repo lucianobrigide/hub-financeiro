@@ -334,6 +334,10 @@ export interface SaidaHistoricoTitulo {
   parcela: string | null;
   /** true = baixado na Omie. */
   pago: boolean;
+  /** 'YYYY-MM-DD' — data REAL do pagamento ("Último Pagamento" da Omie, via
+   *  lançamento da conta corrente). null = ainda não sincronizada (o
+   *  omie_mov_cc atualiza na manhã seguinte) ou título em aberto. */
+  pagoEm: string | null;
 }
 
 /** Saídas agrupadas por linha (DRE) / natureza, nos próximos 90 dias. */
@@ -443,6 +447,27 @@ export interface FcHistoricoDia {
   saidasPrevistas: number | null;
 }
 
+/**
+ * O dia corrente (D+0) com o que JÁ ocorreu: abertura = fechamento real do
+ * último dia fechado pelo extrato; entReal/saiReal = movimentos reais de hoje
+ * (extrato parcial, coletado 2×/dia). A curva soma isso ao projetado restante.
+ */
+export interface FcHoje {
+  data: string;
+  abertura: number | null;
+  entReal: number;
+  saiReal: number;
+  /** "26/08 16:30" da última coleta do extrato de hoje. */
+  coletadoEm: string | null;
+}
+
+/** Retorno completo do histórico do F.C.: dias fechados + o dia corrente. */
+export interface FcHistorico {
+  dias: FcHistoricoDia[];
+  /** null = extrato de hoje ainda incompleto (a UI cai no comportamento por foto). */
+  hoje: FcHoje | null;
+}
+
 export interface DataProvider {
   /**
    * Lista os meses disponíveis (mais recente primeiro).
@@ -519,10 +544,10 @@ export interface DataProvider {
    */
   getSaldoCaixa?(): Promise<SaldoCaixa | null>;
   /**
-   * Dias já passados do F.C. com caixa fechado (fotos de fc_snapshot).
-   * `null`/vazio => sem histórico ainda. OPCIONAL.
+   * Histórico do F.C.: dias fechados (extrato/foto) + o dia corrente com o
+   * movimento real já ocorrido. `null` => sem histórico ainda. OPCIONAL.
    */
-  getFcHistorico?(): Promise<FcHistoricoDia[] | null>;
+  getFcHistorico?(): Promise<FcHistorico | null>;
 }
 
 /** Resultado da trava de fechamento (RPC omie_dre_drift). */
