@@ -1,7 +1,7 @@
 "use server";
 
 import { dataProvider } from "@/lib/data";
-import type { DashboardData, DreDrift, DreItem, SkuDre } from "@/lib/data/types";
+import type { DashboardData, DreDrift, DreItem, SkuDre, SkuVendaDia } from "@/lib/data/types";
 
 // Server Action: o dropdown (client) chama isto ao trocar o mês. O dataProvider
 // roda SÓ no servidor — o client nunca importa lib/data (que puxa server-only).
@@ -12,6 +12,11 @@ export async function fetchDashboardAction(month: string): Promise<DashboardData
 // Server Action: DRE por SKU de um canal no mês (seção sob demanda nas páginas de canal).
 export async function fetchDreSkuAction(canal: string, month: string): Promise<SkuDre[]> {
   return (await dataProvider.getDreSku?.(canal, month)) ?? [];
+}
+
+// Server Action: unidades vendidas por SKU × dia no mês (tabela do dashboard principal).
+export async function fetchSkuVendasDiaAction(month: string): Promise<SkuVendaDia[]> {
+  return (await dataProvider.getSkuVendasDia?.(month)) ?? [];
 }
 
 // Server Action: linhas do DRE preenchíveis pela Omie (Grupo R) no mês. Mapa dre_code -> valor.

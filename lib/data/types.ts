@@ -140,6 +140,16 @@ export interface SkuDre {
   serie: SerieDiariaItem[];
 }
 
+/** Uma célula da tabela SKU × dia do dashboard principal:
+ *  unidades vendidas de um SKU num dia, TODOS os canais somados. */
+export interface SkuVendaDia {
+  sku: string;
+  titulo: string;
+  /** Dia "DD/MM" dentro do mês pedido. */
+  data: string;
+  qtd: number;
+}
+
 /** Uma linha da sidebar de vendas diárias. */
 export interface VendaDiaria {
   /** Data no formato "dd/MM". */
@@ -416,6 +426,12 @@ export interface DataProvider {
    * OPCIONAL: só o provider Supabase implementa.
    */
   getDreSku?(canal: string, month: string): Promise<SkuDre[]>;
+  /**
+   * Unidades vendidas por SKU × dia no mês, todos os canais somados (tabela do
+   * dashboard principal; o filtro de dias vive no client).
+   * OPCIONAL: só o provider Supabase implementa.
+   */
+  getSkuVendasDia?(month: string): Promise<SkuVendaDia[]>;
   /**
    * Linhas do DRE preenchíveis pela Omie (Grupo R + C# de fonte Omie) para um mês.
    * Retorna mapa `dre_code -> valor` (ex.: { R1: 6458.35, R3: 261768.89 }).

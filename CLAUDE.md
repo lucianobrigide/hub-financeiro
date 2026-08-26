@@ -100,7 +100,7 @@ Monitorar: aba **`/crons`** (RPC `crons_status`) e tabela `oauth_refresh_log` (m
 ## Módulos (ativos vs stub)
 
 **Ativos (verificado em `app/(hub)/`):**
-- `/` — dashboard: cards por canal (faturamento → deduções → M.C.) + gráfico faturamento/M.C. por dia. (`HubMain.tsx`)
+- `/` — dashboard: cards por canal (faturamento → deduções → M.C.) + gráfico faturamento/M.C. por dia. (`HubMain.tsx`) **+ tabela "Vendas por SKU × dia" no rodapé (26/08/2026, pedido do Luciano):** unidades vendidas por SKU em cada dia, TODOS os canais somados (réguas de status = bruta de cada canal; SKU unificado por unaccent; dia corrente fora — crons ingerem na madrugada), com filtro de dias (de/até + "Mês todo") e linha de total; SKU sem venda no recorte fica oculto. RPC `sku_vendas_dia(p_month)` (migration `20260826140001`) → `getSkuVendasDia` → `fetchSkuVendasDiaAction` → `components/SkuVendasDia.tsx`. Validado: ago/2026 = 17.594 unidades, soma por canal bate exata com as tabelas de origem.
 - `/dre` — DRE consolidado do mês fechado, com drill-down em 3 níveis (linha → categoria → item).
 - `/crons` — painel de saúde dos crons.
 - `/marketplaces/{mercado-livre,shopee,tiktok,amazon,shein,magalu,vendas-internas}` — páginas de canal (delegam ao componente `CanalDashboard`).

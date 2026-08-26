@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { CronsStatus, DashboardData, DataProvider, DreDrift, DreItem, FcHistoricoDia, Month, PlataformaDre, Recebiveis, SaidasProjetadas, SaldoCaixa, SerieDiariaItem, SkuDre, VendaDiaria } from "./types";
+import type { CronsStatus, DashboardData, DataProvider, DreDrift, DreItem, FcHistoricoDia, Month, PlataformaDre, Recebiveis, SaidasProjetadas, SaldoCaixa, SerieDiariaItem, SkuDre, SkuVendaDia, VendaDiaria } from "./types";
 import { hojeBrt, recebiveisVazios } from "./recebiveis";
 
 /** Labels das 6 deduções do mini-DRE, na ordem do card. */
@@ -1054,6 +1054,12 @@ export const supabaseProvider: DataProvider = {
       "Despesas com o Full": somaDed("Full"),
       "Marketing & Tráfego": somaDed("ADS"), // ADS de marketplace; some no C1 junto do marketing próprio (Omie)
     };
+  },
+
+  // Unidades vendidas por SKU × dia (todos os canais somados) — tabela do dashboard
+  // principal. A RPC devolve o mês inteiro; o filtro de dias é do client.
+  async getSkuVendasDia(month: string): Promise<SkuVendaDia[]> {
+    return (await rpc<SkuVendaDia[]>("sku_vendas_dia", { p_month: month })) ?? [];
   },
 
   // DRE por SKU de um canal no mês: agrega as linhas (sku×dia) do RPC dre_sku
