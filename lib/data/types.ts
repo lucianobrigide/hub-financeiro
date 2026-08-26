@@ -308,6 +308,34 @@ export interface SaidaTitulo {
   vencido: boolean;
 }
 
+/**
+ * Um dia já passado do cronograma de saídas (desde o corte ago/2026).
+ * Mostra o que estava PREVISTO para aquele dia e o status real: `pago` =
+ * baixado na Omie (saiu); `aberto` = segue sem baixa (também está no exigível
+ * de D+0). ⚠️ A API da Omie não devolve a data da baixa — "pago" é o status
+ * atual do título, não prova de que saiu naquele dia exato.
+ */
+export interface SaidaHistoricoDia {
+  /** 'YYYY-MM-DD' — previsão de pagamento na Omie. */
+  data: string;
+  pago: number;
+  aberto: number;
+  titulos: number;
+}
+
+/** Um título do detalhe dos dias passados do cronograma de saídas. */
+export interface SaidaHistoricoTitulo {
+  prev: string;
+  venc: string;
+  fornecedor: string;
+  grupo: string;
+  valor: number;
+  doc: string | null;
+  parcela: string | null;
+  /** true = baixado na Omie. */
+  pago: boolean;
+}
+
 /** Saídas agrupadas por linha (DRE) / natureza, nos próximos 90 dias. */
 export interface SaidasGrupo {
   grupo: string;
@@ -349,6 +377,10 @@ export interface SaidasProjetadas {
   /** Detalhe por título: cronograma de 90d + vencido exigível (flag `vencido`). */
   titulos: SaidaTitulo[];
   grupos: SaidasGrupo[];
+  /** Dias passados do cronograma (desde o corte ago/2026): previsto no dia + status pago/aberto. */
+  historico: SaidaHistoricoDia[];
+  /** Detalhe por título dos dias passados. */
+  historicoTitulos: SaidaHistoricoTitulo[];
   /** Última sincronização das contas a pagar ("21/08 05:00"). */
   atualizadoEm: string | null;
 }

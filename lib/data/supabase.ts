@@ -133,6 +133,9 @@ interface OmieSaidasRow {
   dias: { data: string; valor: number; titulos: number }[];
   titulos: { prev: string; venc: string; fornecedor: string; grupo: string; valor: number; doc: string | null; parcela: string | null; vencido: boolean }[];
   grupos: { grupo: string; valor_90d: number; vencido_recente: number; titulos_90d: number }[];
+  /** Dias passados do cronograma (desde o corte): previsto no dia + status pago/aberto. */
+  historico: { data: string; pago: number; aberto: number; titulos: number }[];
+  historico_titulos: { prev: string; venc: string; fornecedor: string; grupo: string; valor: number; doc: string | null; parcela: string | null; pago: boolean }[];
   atualizado_em: string | null;
 }
 
@@ -981,6 +984,22 @@ export const supabaseProvider: DataProvider = {
           valor90d: g.valor_90d,
           vencidoRecente: g.vencido_recente,
           titulos90d: g.titulos_90d,
+        })),
+        historico: (r.historico ?? []).map((h) => ({
+          data: h.data,
+          pago: h.pago,
+          aberto: h.aberto,
+          titulos: h.titulos,
+        })),
+        historicoTitulos: (r.historico_titulos ?? []).map((t) => ({
+          prev: t.prev,
+          venc: t.venc,
+          fornecedor: t.fornecedor,
+          grupo: t.grupo,
+          valor: t.valor,
+          doc: t.doc,
+          parcela: t.parcela,
+          pago: t.pago,
         })),
         atualizadoEm: r.atualizado_em ? fmtDataHora(r.atualizado_em) : null,
       };
