@@ -422,7 +422,8 @@ export interface SaldoCaixa {
 export interface FcHistoricoDia {
   /** 'YYYY-MM-DD' do dia fechado. */
   data: string;
-  /** Saldo em conta na foto do próprio dia (08:45). null quando o dia não tem foto. */
+  /** SALDO INICIAL do dia: fechamento − ent + sai no extrato (= fechamento do
+   *  dia anterior, exato); no fallback foto, o saldo da foto das 08:45. */
   abertura: number | null;
   /** Caixa fechado do dia: saldo de fim de dia do extrato (fonte 'extrato') ou foto seguinte (fonte 'foto'). */
   fechamento: number | null;

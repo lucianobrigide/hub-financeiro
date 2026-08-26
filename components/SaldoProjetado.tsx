@@ -229,8 +229,8 @@ export function SaldoProjetado({
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs">
           <span style={{ color: COLORS.muted }}>
-            Curva dia a dia · <span style={{ color: COLORS.cyan }}>entradas</span> ·{" "}
-            <span style={{ color: COLORS.red }}>saídas</span> · saldo
+            Curva dia a dia · abertura · <span style={{ color: COLORS.cyan }}>entradas</span> ·{" "}
+            <span style={{ color: COLORS.red }}>saídas</span> · saldo do fim do dia
             {saldoInicial == null && " (sem saldo inicial: a coluna saldo mostra só a variação acumulada)"}
             {passado.length > 0 &&
               " · dias passados: entradas e saídas REAIS do extrato da Omie (contas de caixa, transferências internas excluídas) e caixa fechado no fim do dia"}
@@ -252,6 +252,13 @@ export function SaldoProjetado({
               </span>
               <span className="w-[34px] shrink-0 text-[10px] tabular-nums" style={{ color: `${COLORS.muted}99` }}>
                 D−{h.atras}
+              </span>
+              <span
+                className="hidden w-[104px] shrink-0 text-right tabular-nums sm:inline"
+                style={{ color: COLORS.muted }}
+                title="saldo inicial do dia"
+              >
+                {h.abertura != null ? brl(h.abertura) : "·"}
               </span>
               <span
                 className="w-[96px] shrink-0 text-right tabular-nums"
@@ -339,6 +346,13 @@ export function SaldoProjetado({
               </span>
               <span className="w-[34px] shrink-0 text-[10px] tabular-nums" style={{ color: `${COLORS.muted}99` }}>
                 D+{x.d}
+              </span>
+              <span
+                className="hidden w-[104px] shrink-0 text-right tabular-nums sm:inline"
+                style={{ color: `${COLORS.muted}bb` }}
+                title="saldo inicial do dia (projetado)"
+              >
+                {saldoInicial != null ? brl(x.saldo - x.entradas + x.saidas) : "·"}
               </span>
               <span className="w-[96px] shrink-0 text-right tabular-nums" style={{ color: x.entradas > 0 ? COLORS.cyan : `${COLORS.muted}66` }}>
                 {x.entradas > 0 ? `+${brl(x.entradas)}` : "·"}
