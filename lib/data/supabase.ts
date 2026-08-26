@@ -157,14 +157,17 @@ interface FcSaldoCaixaRow {
   }[];
 }
 
-/** Retorno do RPC `fc_historico` (dias passados com caixa fechado, de fc_snapshot). */
+/** Retorno do RPC `fc_historico` (dias passados: extrato real da Omie, fallback fotos do fc_snapshot). */
 interface FcHistoricoRow {
   referencia: string;
   dias: {
     data: string;
     abertura: number | null;
     fechamento: number | null;
+    fonte: "extrato" | "foto" | null;
     fechamento_data: string | null;
+    ent_real: number | null;
+    sai_real: number | null;
     movimento: number | null;
     ent_prev: number | null;
     sai_prev: number | null;
@@ -1042,7 +1045,10 @@ export const supabaseProvider: DataProvider = {
         data: d.data,
         abertura: d.abertura,
         fechamento: d.fechamento,
+        fonte: d.fonte,
         fechamentoData: d.fechamento_data,
+        entReal: d.ent_real,
+        saiReal: d.sai_real,
         movimento: d.movimento,
         entradasPrevistas: d.ent_prev,
         saidasPrevistas: d.sai_prev,

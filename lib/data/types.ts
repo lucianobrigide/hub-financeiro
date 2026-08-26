@@ -412,21 +412,29 @@ export interface SaldoCaixa {
 }
 
 /* ── Histórico do F.C. (dias fechados) ──────────────────────────────────────
- * O dia que passou não some da curva: fica com o caixa FECHADO. Fonte é a foto
- * diária de fc_snapshot (08:45 BRT, desde 25/08/2026): abertura = saldo em conta
- * na foto do próprio dia; fechamento = saldo da foto seguinte (a manhã de D+1
- * fecha o dia D). Nada estimado — os dois saldos são o dado real da Omie.
+ * O dia que passou não some da curva: fica com o caixa FECHADO. Desde
+ * 26/08/2026 a fonte primária é o EXTRATO diário da Omie (omie_extrato_dia,
+ * contas de caixa): entradas e saídas REAIS do dia (transferência entre duas
+ * contas de caixa excluída — remanejamento interno) e fechamento = saldo de
+ * fim de dia — identidade exata: fech(D) = fech(D−1) + ent − sai. Dia sem
+ * extrato completo cai na foto do fc_snapshot (só movimento líquido).
  */
 export interface FcHistoricoDia {
   /** 'YYYY-MM-DD' do dia fechado. */
   data: string;
-  /** Saldo em conta na foto do próprio dia (08:45). */
+  /** Saldo em conta na foto do próprio dia (08:45). null quando o dia não tem foto. */
   abertura: number | null;
-  /** Saldo em conta na foto seguinte = caixa fechado do dia. null = ainda sem foto de fechamento. */
+  /** Caixa fechado do dia: saldo de fim de dia do extrato (fonte 'extrato') ou foto seguinte (fonte 'foto'). */
   fechamento: number | null;
-  /** Dia da foto que fechou (normalmente data+1; maior se uma foto faltou no meio). */
+  /** 'extrato' = fluxo real dia fechado exato · 'foto' = fallback pelas fotos do fc_snapshot. */
+  fonte: "extrato" | "foto" | null;
+  /** Dia do fechamento (o próprio dia no extrato; a foto seguinte no fallback). */
   fechamentoData: string | null;
-  /** fechamento − abertura: movimento líquido REAL do dia. */
+  /** Entradas REAIS do dia (extrato; créditos nas contas de caixa). null no fallback foto. */
+  entReal: number | null;
+  /** Saídas REAIS do dia (extrato; débitos nas contas de caixa, positivo). null no fallback foto. */
+  saiReal: number | null;
+  /** Movimento líquido do dia (ent − sai no extrato; diferença de fotos no fallback). */
   movimento: number | null;
   /** O que a curva daquele dia projetava de entradas em D+0 (backtest). */
   entradasPrevistas: number | null;

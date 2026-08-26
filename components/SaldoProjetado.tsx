@@ -19,10 +19,12 @@ import { COLORS, Panel, brl } from "./ui";
  * Valores vêm da API; única projeção admitida é a do TikTok (Opção B, 25/08/2026:
  * bruto × razão 60d, auto-corrigida pelo statement real — decisão do Luciano).
  *
- * PASSADO (26/08/2026, pedido do Luciano): o dia que passou não some — fica no
- * topo da curva com o caixa FECHADO (`historico`, de fc_snapshot): fechamento =
- * saldo real em conta na foto da manhã seguinte; a coluna de movimento mostra o
- * líquido REAL do dia (fechamento − abertura), não a projeção.
+ * PASSADO (26/08/2026, pedido do Luciano — "estamos falando de fluxo de caixa,
+ * precisa bater"): o dia que passou fica no topo da curva com o FLUXO REAL do
+ * extrato da Omie: entradas e saídas reais do dia nas contas de caixa
+ * (transferência entre duas contas de caixa excluída) e fechamento = saldo de
+ * fim de dia — identidade exata fech(D) = fech(D−1) + ent − sai. Dia sem
+ * extrato completo cai na foto do fc_snapshot (só movimento líquido).
  */
 
 const AMBER = "#ffb84d";
@@ -231,7 +233,7 @@ export function SaldoProjetado({
             <span style={{ color: COLORS.red }}>saídas</span> · saldo
             {saldoInicial == null && " (sem saldo inicial: a coluna saldo mostra só a variação acumulada)"}
             {passado.length > 0 &&
-              " · dias passados: movimento líquido REAL e caixa fechado (fotos das 08:45 da Omie — histórico desde 25/08/2026)"}
+              " · dias passados: entradas e saídas REAIS do extrato da Omie (contas de caixa, transferências internas excluídas) e caixa fechado no fim do dia"}
           </span>
           <button
             type="button"
@@ -253,15 +255,45 @@ export function SaldoProjetado({
               </span>
               <span
                 className="w-[96px] shrink-0 text-right tabular-nums"
-                style={{ color: h.movimento != null && h.movimento > 0 ? COLORS.cyan : `${COLORS.muted}66` }}
+                style={{
+                  color:
+                    h.entReal != null
+                      ? h.entReal > 0
+                        ? COLORS.cyan
+                        : `${COLORS.muted}66`
+                      : h.movimento != null && h.movimento > 0
+                        ? COLORS.cyan
+                        : `${COLORS.muted}66`,
+                }}
               >
-                {h.movimento != null && h.movimento > 0 ? `+${brl(h.movimento)}` : "·"}
+                {h.entReal != null
+                  ? h.entReal > 0
+                    ? `+${brl(h.entReal)}`
+                    : "·"
+                  : h.movimento != null && h.movimento > 0
+                    ? `+${brl(h.movimento)}`
+                    : "·"}
               </span>
               <span
                 className="w-[96px] shrink-0 text-right tabular-nums"
-                style={{ color: h.movimento != null && h.movimento < 0 ? COLORS.red : `${COLORS.muted}66` }}
+                style={{
+                  color:
+                    h.saiReal != null
+                      ? h.saiReal > 0
+                        ? COLORS.red
+                        : `${COLORS.muted}66`
+                      : h.movimento != null && h.movimento < 0
+                        ? COLORS.red
+                        : `${COLORS.muted}66`,
+                }}
               >
-                {h.movimento != null && h.movimento < 0 ? `−${brl(Math.abs(h.movimento))}` : "·"}
+                {h.saiReal != null
+                  ? h.saiReal > 0
+                    ? `−${brl(h.saiReal)}`
+                    : "·"
+                  : h.movimento != null && h.movimento < 0
+                    ? `−${brl(Math.abs(h.movimento))}`
+                    : "·"}
               </span>
               <span className="min-w-0 flex-1">
                 <div className="h-2 w-full overflow-hidden rounded-full" style={{ background: COLORS.panelBorder }}>
@@ -282,8 +314,10 @@ export function SaldoProjetado({
                 style={{ color: h.saldoDia != null ? corSaldo(h.saldoDia) : COLORS.muted }}
                 title={
                   h.fechamento != null
-                    ? `caixa fechado pela foto de ${h.fechamentoData ? ddmm(h.fechamentoData) : "—"} (abertura ${h.abertura != null ? brl(h.abertura) : "—"})`
-                    : "ainda sem foto de fechamento — mostrando a abertura do dia"
+                    ? h.fonte === "extrato"
+                      ? `caixa fechado no fim do dia (extrato da Omie) · movimento líquido ${h.movimento != null ? brl(h.movimento) : "—"}`
+                      : `caixa fechado pela foto de ${h.fechamentoData ? ddmm(h.fechamentoData) : "—"} (abertura ${h.abertura != null ? brl(h.abertura) : "—"})`
+                    : "ainda sem fechamento — mostrando a abertura do dia"
                 }
               >
                 {h.saldoDia != null ? brl(h.saldoDia) : "—"}
