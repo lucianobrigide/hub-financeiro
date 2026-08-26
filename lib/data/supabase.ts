@@ -167,6 +167,8 @@ interface FcHistoricoRow {
     sai_real: number;
     completo: boolean;
     coletado_em: string | null;
+    mp_disponivel: number | null;
+    mp_data: string | null;
   } | null;
   dias: {
     data: string;
@@ -728,6 +730,15 @@ export const supabaseProvider: DataProvider = {
     // Mercado Pago. Falha de RPC não derruba a página: o canal segue "sem dados".
     try {
       const mp = await rpc<MpRecebiveisRow>("mp_recebiveis");
+      // Saldo já liberado na conta MP (release report, fechamento de ontem —
+      // 26/08/2026; o endpoint de balance segue 403). null se ainda sem coleta.
+      let disponivel: number | null = null;
+      try {
+        const s = await rpc<{ data?: string; fechamento?: number }>("mp_saldo_atual");
+        if (s?.fechamento != null) disponivel = s.fechamento;
+      } catch {
+        // sem saldo coletado ainda — card mostra só o a liberar
+      }
       const i = plataformas.findIndex((p) => p.id === "mercado-pago");
       if (mp && i >= 0) {
         // Cobertura honesta: pagamento sem líquido na API não é estimado — fica de
@@ -740,9 +751,7 @@ export const supabaseProvider: DataProvider = {
           ...plataformas[i],
           integrado: true,
           total: mp.total,
-          // Saldo já liberado na conta MP: endpoint de balance responde 403 para
-          // esta credencial (ver CLAUDE.md/Pendências) — sem dado, não inventa.
-          disponivel: null,
+          disponivel,
           dias: (mp.dias ?? []).map((d) => ({ data: d.data, valor: d.valor })),
           atualizadoEm: mp.atualizado_em ? fmtDataHora(mp.atualizado_em) : null,
           nota,
@@ -1073,6 +1082,8 @@ export const supabaseProvider: DataProvider = {
                 entReal: r.hoje.ent_real,
                 saiReal: r.hoje.sai_real,
                 coletadoEm: r.hoje.coletado_em ? fmtDataHora(r.hoje.coletado_em) : null,
+                mpDisponivel: r.hoje.mp_disponivel,
+                mpData: r.hoje.mp_data,
               }
             : null,
       };

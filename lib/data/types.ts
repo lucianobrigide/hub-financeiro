@@ -454,11 +454,16 @@ export interface FcHistoricoDia {
  */
 export interface FcHoje {
   data: string;
+  /** Abertura CONSOLIDADA de hoje: bancos + MP disponível, fechamento de ontem. */
   abertura: number | null;
   entReal: number;
   saiReal: number;
   /** "26/08 16:30" da última coleta do extrato de hoje. */
   coletadoEm: string | null;
+  /** Saldo DISPONÍVEL no Mercado Pago (fechamento do último dia coletado). */
+  mpDisponivel: number | null;
+  /** 'YYYY-MM-DD' do dia a que o mpDisponivel se refere. */
+  mpData: string | null;
 }
 
 /** Retorno completo do histórico do F.C.: dias fechados + o dia corrente. */

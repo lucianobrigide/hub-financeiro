@@ -104,9 +104,13 @@ export function SaldoProjetado({
   // já ocorrido hoje ao projetado restante — pagamento feito de manhã (ex.:
   // boleto previsto p/ ontem pago hoje) aparece nas saídas de hoje.
   const hojeReal = historico?.hoje && historico.hoje.abertura != null ? historico.hoje : null;
-  /** Saldo em conta na última coleta (card). */
+  /** Saldo em conta (bancos) na última coleta (card). */
   const saldoConta = saldo?.total ?? null;
-  /** Base da curva: abertura REAL de hoje (fechamento de ontem no extrato); fallback foto. */
+  /** Saldo já liberado no Mercado Pago (fechamento do último dia coletado). */
+  const mpDisponivel = hojeReal?.mpDisponivel ?? null;
+  /** Caixa consolidado de agora: bancos + MP disponível. */
+  const caixaHoje = saldoConta != null ? saldoConta + (mpDisponivel ?? 0) : null;
+  /** Base da curva: abertura CONSOLIDADA de hoje (fechamento de ontem, bancos + MP); fallback foto. */
   const saldoInicial = hojeReal ? hojeReal.abertura : saldoConta;
   const curva: DiaProj[] = [];
   let acumulado = saldoInicial ?? 0;
@@ -195,13 +199,17 @@ export function SaldoProjetado({
         <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
           <div className="rounded-lg border px-3 py-2" style={{ borderColor: COLORS.panelBorder, background: COLORS.panel }}>
             <div className="text-[10px] uppercase tracking-wider" style={{ color: COLORS.muted }}>
-              Saldo em conta hoje
+              {mpDisponivel != null ? "Caixa hoje (bancos + MP)" : "Saldo em conta hoje"}
             </div>
-            <div className="text-base font-bold" style={{ color: saldoConta == null ? COLORS.muted : COLORS.white }}>
-              {saldoConta == null ? "— sem dado" : brl(saldoConta)}
+            <div className="text-base font-bold" style={{ color: caixaHoje == null ? COLORS.muted : COLORS.white }}>
+              {caixaHoje == null ? "— sem dado" : brl(caixaHoje)}
             </div>
             <div className="text-[11px]" style={{ color: COLORS.muted }}>
-              {saldo ? `${saldo.contasCaixa} contas de caixa (Omie)${saldo.coletadoEm ? ` · ${saldo.coletadoEm}` : ""}` : "Omie não coletado"}
+              {mpDisponivel != null && saldoConta != null
+                ? `bancos ${brl(saldoConta)}${saldo?.coletadoEm ? ` (${saldo.coletadoEm})` : ""} + MP disponível ${brl(mpDisponivel)}${hojeReal?.mpData ? ` (fech. ${ddmm(hojeReal.mpData)})` : ""}`
+                : saldo
+                  ? `${saldo.contasCaixa} contas de caixa (Omie)${saldo.coletadoEm ? ` · ${saldo.coletadoEm}` : ""}`
+                  : "Omie não coletado"}
             </div>
           </div>
           <div className="rounded-lg border px-3 py-2" style={{ borderColor: COLORS.panelBorder, background: COLORS.panel }}>
