@@ -46,11 +46,13 @@ function NavLink({ href, label, active }: { href: string; label: string; active:
   );
 }
 
-export function Sidebar() {
+export function Sidebar({ equipe = false }: { equipe?: boolean }) {
   const pathname = usePathname();
   const [marketplacesOpen, setMarketplacesOpen] = useState(
     pathname.startsWith("/marketplaces"),
   );
+  // Perfil equipe só navega Home + Marketplaces; o proxy.ts bloqueia o resto de fato.
+  const navItems = equipe ? NAV_ITEMS.filter((i) => i.children) : NAV_ITEMS;
 
   return (
     <aside
@@ -67,7 +69,7 @@ export function Sidebar() {
 
       <nav className="flex-1 overflow-y-auto p-3">
         <ul className="space-y-1">
-          {NAV_ITEMS.map((item) => {
+          {navItems.map((item) => {
             if (item.children) {
               const childActive = item.children.some((c) => pathname === c.href);
               return (

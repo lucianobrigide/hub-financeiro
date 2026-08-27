@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import { dataProvider } from "@/lib/data";
 import { DashboardProvider } from "@/components/DashboardProvider";
 import { Sidebar } from "@/components/Sidebar";
@@ -16,13 +17,18 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   const initialMonth = (months.find((m) => m.value !== mesCorrente) ?? months[0])?.value;
   const data = await dataProvider.getDashboard(initialMonth);
 
+  // Perfil equipe: cookie do código restrito (o bloqueio real das rotas fica no proxy.ts).
+  const teamCode = process.env.SITE_ACCESS_CODE_EQUIPE;
+  const cookieStore = await cookies();
+  const equipe = Boolean(teamCode) && cookieStore.get("hub_auth")?.value === teamCode;
+
   return (
     <DashboardProvider initialData={data} months={months} initialMonth={initialMonth}>
       <div
         className="flex min-h-screen font-sans"
         style={{ background: "#0a0e1a", color: "#ffffff" }}
       >
-        <Sidebar />
+        <Sidebar equipe={equipe} />
         <HubMain>{children}</HubMain>
       </div>
     </DashboardProvider>

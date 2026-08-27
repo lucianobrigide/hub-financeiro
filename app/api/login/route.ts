@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const ACCESS_CODE = process.env.SITE_ACCESS_CODE ?? "1914";
+// Código da equipe (perfil restrito) — só existe se a env estiver definida.
+const TEAM_CODE = process.env.SITE_ACCESS_CODE_EQUIPE;
 const COOKIE = "hub_auth";
 
 export async function POST(req: NextRequest) {
@@ -8,7 +10,8 @@ export async function POST(req: NextRequest) {
   const code = String(form.get("code") ?? "").trim();
   const next = String(form.get("next") ?? "/") || "/";
 
-  if (code !== ACCESS_CODE) {
+  const valido = code === ACCESS_CODE || (Boolean(TEAM_CODE) && code === TEAM_CODE);
+  if (!valido) {
     const url = req.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("next", next);
@@ -20,7 +23,7 @@ export async function POST(req: NextRequest) {
   url.pathname = next.startsWith("/") ? next : "/";
   url.search = "";
   const res = NextResponse.redirect(url, { status: 303 });
-  res.cookies.set(COOKIE, ACCESS_CODE, {
+  res.cookies.set(COOKIE, code, {
     httpOnly: true,
     secure: true,
     sameSite: "lax",

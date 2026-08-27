@@ -2,7 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 
 // Código de acesso pessoal ao hub. Override via env SITE_ACCESS_CODE na Vercel.
 const ACCESS_CODE = process.env.SITE_ACCESS_CODE ?? "1914";
+// Código da equipe (acesso restrito: só Home e Marketplaces). Sem fallback:
+// enquanto a env SITE_ACCESS_CODE_EQUIPE não existir, esse perfil não existe.
+const TEAM_CODE = process.env.SITE_ACCESS_CODE_EQUIPE;
 const COOKIE = "hub_auth";
+
+// Prefixos que o perfil equipe pode abrir (além de /, liberado à parte).
+const TEAM_ALLOWED = ["/marketplaces"];
 
 export function proxy(req: NextRequest) {
   const { pathname, hostname } = req.nextUrl;
@@ -21,8 +27,21 @@ export function proxy(req: NextRequest) {
     return NextResponse.next();
   }
 
-  if (req.cookies.get(COOKIE)?.value === ACCESS_CODE) {
+  const cookie = req.cookies.get(COOKIE)?.value;
+
+  if (cookie === ACCESS_CODE) {
     return NextResponse.next();
+  }
+
+  if (TEAM_CODE && cookie === TEAM_CODE) {
+    if (pathname === "/" || TEAM_ALLOWED.some((p) => pathname.startsWith(p))) {
+      return NextResponse.next();
+    }
+    // Página fora do perfil: volta para a Home em vez da tela de login.
+    const url = req.nextUrl.clone();
+    url.pathname = "/";
+    url.search = "";
+    return NextResponse.redirect(url);
   }
 
   const url = req.nextUrl.clone();
