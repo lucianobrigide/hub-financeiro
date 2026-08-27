@@ -3,6 +3,11 @@ import { DashboardProvider } from "@/components/DashboardProvider";
 import { Sidebar } from "@/components/Sidebar";
 import { HubMain } from "./HubMain";
 
+// Sem isto, o build da Vercel prerenderiza `/`, `/dre` e `/marketplaces/*` como
+// estáticas e o dashboard serviria o snapshot do momento do build (com DATA_SOURCE
+// ausente no build, seria o mock) até o usuário trocar o mês.
+export const dynamic = "force-dynamic";
+
 export default async function HubLayout({ children }: { children: React.ReactNode }) {
   const months = (await dataProvider.listAvailableMonths?.()) ?? [];
   const mesCorrente = new Date()
