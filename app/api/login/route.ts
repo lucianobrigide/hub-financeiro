@@ -13,7 +13,11 @@ export async function POST(req: NextRequest) {
     url.pathname = "/login";
     url.searchParams.set("next", next);
     url.searchParams.set("erro", "1");
-    return NextResponse.redirect(url, { status: 303 });
+    const res = NextResponse.redirect(url, { status: 303 });
+    // diagnóstico temporário (27/08): a env chega ao runtime? (só presença+tamanho, nunca o valor)
+    const env = process.env.SITE_ACCESS_CODE;
+    res.headers.set("x-debug-env", env ? `set:len${env.length}` : "unset");
+    return res;
   }
 
   const url = req.nextUrl.clone();
