@@ -131,6 +131,12 @@ export function SaldoProjetado({
     acumulado += e - s;
     curva.push({ data, d, entradas: e, saidas: s, saldo: acumulado });
   }
+  // A liberar nas plataformas (destaque do topo): tudo o que já foi vendido e
+  // ainda não caiu — só as integradas que somam; com data = tem dia previsto
+  // no cronograma (qualquer horizonte), sem data = valorSemData + sem cronograma.
+  const aLiberar = somam.reduce((a, p) => a + (p.total ?? 0), 0);
+  const aLiberarComData = somam.reduce((a, p) => a + p.dias.reduce((s, d) => s + d.valor, 0), 0);
+  const aLiberarSemData = aLiberar - aLiberarComData;
   const totEntradas = curva.reduce((a, x) => a + x.entradas, 0);
   const totSaidas = curva.reduce((a, x) => a + x.saidas, 0);
   const fim = curva[curva.length - 1];
@@ -202,7 +208,35 @@ export function SaldoProjetado({
           </div>
         </div>
 
-        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {/* Saldo inicial + a liberar — destaque no topo (pedido do Luciano 28/08/2026) */}
+        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <div className="rounded-lg border px-3 py-2" style={{ borderColor: `${COLORS.cyan}55`, background: COLORS.panel }}>
+            <div className="text-[10px] uppercase tracking-wider" style={{ color: COLORS.muted }}>
+              Saldo inicial de hoje ({ddmm(referencia)})
+            </div>
+            <div className="text-xl font-bold" style={{ color: saldoInicial == null ? COLORS.muted : COLORS.white }}>
+              {saldoInicial == null ? "— sem dado" : brl(saldoInicial)}
+            </div>
+            <div className="text-[11px]" style={{ color: COLORS.muted }}>
+              {hojeReal
+                ? "abertura do dia = fechamento consolidado de ontem (bancos + MP + Shopee + em trânsito)"
+                : "saldo em conta (Omie) — sem fechamento consolidado de ontem"}
+            </div>
+          </div>
+          <div className="rounded-lg border px-3 py-2" style={{ borderColor: `${COLORS.cyan}55`, background: COLORS.panel }}>
+            <div className="text-[10px] uppercase tracking-wider" style={{ color: COLORS.muted }}>
+              A liberar nas plataformas
+            </div>
+            <div className="text-xl font-bold" style={{ color: COLORS.cyan }}>
+              {brl(aLiberar)}
+            </div>
+            <div className="text-[11px]" style={{ color: COLORS.muted }}>
+              {`${brl(aLiberarComData)} com data · ${brl(aLiberarSemData)} sem data — vira entrada na curva na data de liberação`}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
           <div className="rounded-lg border px-3 py-2" style={{ borderColor: COLORS.panelBorder, background: COLORS.panel }}>
             <div className="text-[10px] uppercase tracking-wider" style={{ color: COLORS.muted }}>
               {mpDisponivel != null || shDisponivel != null ? "Caixa hoje (bancos + MP + Shopee)" : "Saldo em conta hoje"}
