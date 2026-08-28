@@ -454,7 +454,8 @@ export interface FcHistoricoDia {
  */
 export interface FcHoje {
   data: string;
-  /** Abertura CONSOLIDADA de hoje: bancos + MP disponível, fechamento de ontem. */
+  /** Abertura CONSOLIDADA de hoje: bancos + MP + carteira Shopee + saques em
+   *  trânsito (fechamento consolidado de ontem). */
   abertura: number | null;
   entReal: number;
   saiReal: number;
@@ -464,6 +465,14 @@ export interface FcHoje {
   mpDisponivel: number | null;
   /** 'YYYY-MM-DD' do dia a que o mpDisponivel se refere. */
   mpData: string | null;
+  /** Payout do MP já criado e ainda sem crédito no banco (em trânsito). */
+  mpTransito: number | null;
+  /** Saldo DISPONÍVEL na carteira Shopee (última transação ingerida — inclui o dia corrente parcial). */
+  shDisponivel: number | null;
+  /** 'YYYY-MM-DD' da última transação da carteira Shopee. */
+  shData: string | null;
+  /** Saque da Shopee já criado e ainda sem crédito no banco (em trânsito). */
+  shTransito: number | null;
 }
 
 /** Retorno completo do histórico do F.C.: dias fechados + o dia corrente. */

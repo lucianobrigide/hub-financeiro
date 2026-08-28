@@ -7,7 +7,8 @@ import { COLORS, Panel, brl } from "./ui";
 /**
  * Seção "Saldo projetado por dia" (aba F.C. Projetado).
  *
- * saldo(D) = saldo em conta hoje (Omie, só contas de caixa)
+ * saldo(D) = caixa consolidado hoje (bancos Omie + MP disponível + carteira
+ *            Shopee + saques em trânsito — desde 28/08/2026)
  *          + Σ recebíveis COM DATA até D (plataformas integradas que somam)
  *          − Σ saídas COM DATA até D (contas a pagar da Omie)
  *          − vencido recente em D+0 (exigível agora — erro a favor do caixa)
@@ -108,9 +109,14 @@ export function SaldoProjetado({
   const saldoConta = saldo?.total ?? null;
   /** Saldo já liberado no Mercado Pago (fechamento do último dia coletado). */
   const mpDisponivel = hojeReal?.mpDisponivel ?? null;
-  /** Caixa consolidado de agora: bancos + MP disponível. */
-  const caixaHoje = saldoConta != null ? saldoConta + (mpDisponivel ?? 0) : null;
-  /** Base da curva: abertura CONSOLIDADA de hoje (fechamento de ontem, bancos + MP); fallback foto. */
+  /** Saldo disponível na carteira Shopee (última transação ingerida, 28/08/2026). */
+  const shDisponivel = hojeReal?.shDisponivel ?? null;
+  /** Saques MP/Shopee já criados e ainda não caídos no banco. */
+  const emTransito = (hojeReal?.mpTransito ?? 0) + (hojeReal?.shTransito ?? 0);
+  /** Caixa consolidado de agora: bancos + MP + carteira Shopee + em trânsito. */
+  const caixaHoje =
+    saldoConta != null ? saldoConta + (mpDisponivel ?? 0) + (shDisponivel ?? 0) + emTransito : null;
+  /** Base da curva: abertura CONSOLIDADA de hoje (fechamento de ontem: bancos + MP + Shopee + trânsito); fallback foto. */
   const saldoInicial = hojeReal ? hojeReal.abertura : saldoConta;
   const curva: DiaProj[] = [];
   let acumulado = saldoInicial ?? 0;
@@ -199,14 +205,21 @@ export function SaldoProjetado({
         <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
           <div className="rounded-lg border px-3 py-2" style={{ borderColor: COLORS.panelBorder, background: COLORS.panel }}>
             <div className="text-[10px] uppercase tracking-wider" style={{ color: COLORS.muted }}>
-              {mpDisponivel != null ? "Caixa hoje (bancos + MP)" : "Saldo em conta hoje"}
+              {mpDisponivel != null || shDisponivel != null ? "Caixa hoje (bancos + MP + Shopee)" : "Saldo em conta hoje"}
             </div>
             <div className="text-base font-bold" style={{ color: caixaHoje == null ? COLORS.muted : COLORS.white }}>
               {caixaHoje == null ? "— sem dado" : brl(caixaHoje)}
             </div>
             <div className="text-[11px]" style={{ color: COLORS.muted }}>
-              {mpDisponivel != null && saldoConta != null
-                ? `bancos ${brl(saldoConta)}${saldo?.coletadoEm ? ` (${saldo.coletadoEm})` : ""} + MP disponível ${brl(mpDisponivel)}${hojeReal?.mpData ? ` (fech. ${ddmm(hojeReal.mpData)})` : ""}`
+              {(mpDisponivel != null || shDisponivel != null) && saldoConta != null
+                ? `bancos ${brl(saldoConta)}${saldo?.coletadoEm ? ` (${saldo.coletadoEm})` : ""}` +
+                  (mpDisponivel != null
+                    ? ` + MP ${brl(mpDisponivel)}${hojeReal?.mpData ? ` (fech. ${ddmm(hojeReal.mpData)})` : ""}`
+                    : "") +
+                  (shDisponivel != null
+                    ? ` + Shopee ${brl(shDisponivel)}${hojeReal?.shData ? ` (${ddmm(hojeReal.shData)})` : ""}`
+                    : "") +
+                  (emTransito > 0 ? ` + em trânsito p/ banco ${brl(emTransito)}` : "")
                 : saldo
                   ? `${saldo.contasCaixa} contas de caixa (Omie)${saldo.coletadoEm ? ` · ${saldo.coletadoEm}` : ""}`
                   : "Omie não coletado"}
@@ -478,9 +491,10 @@ export function SaldoProjetado({
           </ul>
           <p className="mt-2 text-xs italic" style={{ color: COLORS.muted }}>
             Saldo atual (lançado até hoje) das contas correntes de banco real. {contasFora} outras contas da Omie ficam
-            fora: as de marketplace (Mercado Livre, Shopee, Amazon…) e a &quot;Mercado Pago&quot; são escriturais/não
-            conciliadas — o dinheiro dessas plataformas entra pelos recebíveis, lido delas mesmas. Para mudar o que conta
-            como caixa: coluna <code>conta_caixa</code> em <code>omie_saldos_cc</code>.
+            fora: as de marketplace são escriturais/não conciliadas. O saldo DISPONÍVEL do Mercado Pago e da carteira
+            Shopee entra no consolidado lido das próprias plataformas (release report / wallet); o que ainda não liberou
+            entra pelos recebíveis. Para mudar o que conta como caixa: coluna <code>conta_caixa</code> em{" "}
+            <code>omie_saldos_cc</code>.
           </p>
         </div>
       )}

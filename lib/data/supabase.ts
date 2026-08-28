@@ -169,6 +169,10 @@ interface FcHistoricoRow {
     coletado_em: string | null;
     mp_disponivel: number | null;
     mp_data: string | null;
+    mp_transito: number | null;
+    sh_disponivel: number | null;
+    sh_data: string | null;
+    sh_transito: number | null;
   } | null;
   dias: {
     data: string;
@@ -1084,6 +1088,10 @@ export const supabaseProvider: DataProvider = {
                 coletadoEm: r.hoje.coletado_em ? fmtDataHora(r.hoje.coletado_em) : null,
                 mpDisponivel: r.hoje.mp_disponivel,
                 mpData: r.hoje.mp_data,
+                mpTransito: r.hoje.mp_transito,
+                shDisponivel: r.hoje.sh_disponivel,
+                shData: r.hoje.sh_data,
+                shTransito: r.hoje.sh_transito,
               }
             : null,
       };
