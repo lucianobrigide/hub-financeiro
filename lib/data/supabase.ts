@@ -56,6 +56,7 @@ const SUPABASE_URL =
 const META_MC: Record<string, number> = {
   "2026-06": 220000,
   "2026-07": 220000,
+  "2026-09": 300000,
 };
 const META_MC_DEFAULT = 220000;
 
