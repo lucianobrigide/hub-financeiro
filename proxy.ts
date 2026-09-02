@@ -5,6 +5,9 @@ const ACCESS_CODE = process.env.SITE_ACCESS_CODE ?? "1914";
 // Código da equipe (acesso restrito: só Home e Marketplaces). Sem fallback:
 // enquanto a env SITE_ACCESS_CODE_EQUIPE não existir, esse perfil não existe.
 const TEAM_CODE = process.env.SITE_ACCESS_CODE_EQUIPE;
+// Código da Fernanda (acesso completo, revogável sem trocar o código pessoal).
+const FERNANDA_CODE = process.env.SITE_ACCESS_CODE_FERNANDA;
+const FULL_CODES = [ACCESS_CODE, FERNANDA_CODE].filter(Boolean) as string[];
 const COOKIE = "hub_auth";
 
 // Prefixos que o perfil equipe pode abrir (além de /, liberado à parte).
@@ -29,7 +32,7 @@ export function proxy(req: NextRequest) {
 
   const cookie = req.cookies.get(COOKIE)?.value;
 
-  if (cookie === ACCESS_CODE) {
+  if (cookie && FULL_CODES.includes(cookie)) {
     return NextResponse.next();
   }
 

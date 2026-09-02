@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 const ACCESS_CODE = process.env.SITE_ACCESS_CODE ?? "1914";
 // Código da equipe (perfil restrito) — só existe se a env estiver definida.
 const TEAM_CODE = process.env.SITE_ACCESS_CODE_EQUIPE;
+// Código da Fernanda (acesso completo) — idem, só existe com a env definida.
+const FERNANDA_CODE = process.env.SITE_ACCESS_CODE_FERNANDA;
 const COOKIE = "hub_auth";
 
 export async function POST(req: NextRequest) {
@@ -10,7 +12,10 @@ export async function POST(req: NextRequest) {
   const code = String(form.get("code") ?? "").trim();
   const next = String(form.get("next") ?? "/") || "/";
 
-  const valido = code === ACCESS_CODE || (Boolean(TEAM_CODE) && code === TEAM_CODE);
+  const valido =
+    code === ACCESS_CODE ||
+    (Boolean(TEAM_CODE) && code === TEAM_CODE) ||
+    (Boolean(FERNANDA_CODE) && code === FERNANDA_CODE);
   if (!valido) {
     const url = req.nextUrl.clone();
     url.pathname = "/login";
